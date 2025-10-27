@@ -11,8 +11,11 @@ A SwiftUI component for building messaging interfaces with support for loading o
 
 ## Requirements
 
-- iOS 17.0+ / macOS 15.0+
+- iOS 17.0+
 - Swift 6.0+
+- Xcode 16.0+
+
+**Note**: This package is iOS-only and requires building with Xcode or xcodebuild.
 
 ## Installation
 
