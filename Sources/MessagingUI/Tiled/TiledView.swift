@@ -58,8 +58,8 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
   private var items: [Item] = []
   private let cellBuilder: (Item) -> Cell
 
-  /// サイズ計測用のHostingController（再利用）
-  private lazy var sizingHostingController = UIHostingController<Cell?>(rootView: nil)
+  /// サイズ計測用のCell（再利用）
+  private lazy var sizingCell = TiledViewCell()
 
   public var onPrepend: (() -> Void)?
   public var onAppend: (() -> Void)?
@@ -105,12 +105,20 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
   private func measureSize(at index: Int, width: CGFloat) -> CGSize? {
     guard index < items.count else { return nil }
     let item = items[index]
-    sizingHostingController.rootView = cellBuilder(item)
-    sizingHostingController.sizingOptions = .preferredContentSize
-    sizingHostingController.view.layoutIfNeeded()
 
-    let size = sizingHostingController.sizeThatFits(
-      in: .init(width: width, height: UIView.layoutFittingCompressedSize.height)
+    // UIHostingConfigurationと同じ方法で計測
+    sizingCell.configure(with: cellBuilder(item))
+    sizingCell.layoutIfNeeded()
+
+    let targetSize = CGSize(
+      width: width,
+      height: UIView.layoutFittingCompressedSize.height
+    )
+
+    let size = sizingCell.contentView.systemLayoutSizeFitting(
+      targetSize,
+      withHorizontalFittingPriority: .required,
+      verticalFittingPriority: .fittingSizeLevel
     )
     return size
   }
