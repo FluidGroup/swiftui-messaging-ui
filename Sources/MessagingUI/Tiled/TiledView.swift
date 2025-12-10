@@ -29,9 +29,9 @@ public final class TiledViewCell: UICollectionViewCell {
   }
 }
 
-// MARK: - TiledViewController
+// MARK: - TiledView
 
-public final class TiledViewController<Item: Identifiable, Cell: View>: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
+public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
 
   private var collectionView: UICollectionView!
   private var tiledLayout: TiledCollectionViewLayout!
@@ -49,16 +49,12 @@ public final class TiledViewController<Item: Identifiable, Cell: View>: UIViewCo
   ) {
     self.cellBuilder = cellBuilder
     self.heightCalculator = heightCalculator
-    super.init(nibName: nil, bundle: nil)
+    super.init(frame: .zero)
+    setupCollectionView()
   }
 
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
-  }
-
-  public override func viewDidLoad() {
-    super.viewDidLoad()
-    setupCollectionView()
   }
 
   private func setupCollectionView() {
@@ -73,23 +69,19 @@ public final class TiledViewController<Item: Identifiable, Cell: View>: UIViewCo
 
     collectionView.register(TiledViewCell.self, forCellWithReuseIdentifier: TiledViewCell.reuseIdentifier)
 
-    view.addSubview(collectionView)
+    addSubview(collectionView)
 
     NSLayoutConstraint.activate([
-      collectionView.topAnchor.constraint(equalTo: view.topAnchor),
-      collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-      collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-      collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      collectionView.topAnchor.constraint(equalTo: topAnchor),
+      collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
+      collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
+      collectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
     ])
   }
 
   private func centerOnItems() {
     guard let firstY = tiledLayout.firstItemY() else { return }
     collectionView.contentOffset = CGPoint(x: 0, y: firstY - 100)
-  }
-
-  private func updateContentInset() {
-    collectionView.contentInset = tiledLayout.calculateContentInset()
   }
 
   public func setItems(_ newItems: [Item]) {
@@ -99,7 +91,6 @@ public final class TiledViewController<Item: Identifiable, Cell: View>: UIViewCo
     tiledLayout.appendItems(heights: heights)
     items = newItems
     collectionView.reloadData()
-    updateContentInset()
 
     DispatchQueue.main.async { [weak self] in
       self?.centerOnItems()
@@ -113,7 +104,6 @@ public final class TiledViewController<Item: Identifiable, Cell: View>: UIViewCo
 
     items.insert(contentsOf: newItems, at: 0)
     collectionView.reloadData()
-    updateContentInset()
   }
 
   public func appendItems(_ newItems: [Item]) {
@@ -123,13 +113,11 @@ public final class TiledViewController<Item: Identifiable, Cell: View>: UIViewCo
 
     items.append(contentsOf: newItems)
     collectionView.reloadData()
-    updateContentInset()
   }
 
   public func updateItemHeight(at index: Int, newHeight: CGFloat) {
     tiledLayout.updateItemHeight(at: index, newHeight: newHeight)
     collectionView.reloadData()
-    updateContentInset()
   }
 
   // MARK: UICollectionViewDataSource
@@ -158,36 +146,36 @@ public final class TiledViewController<Item: Identifiable, Cell: View>: UIViewCo
 
 // MARK: - TiledViewRepresentable
 
-public struct TiledViewRepresentable<Item: Identifiable, Cell: View>: UIViewControllerRepresentable {
+public struct TiledViewRepresentable<Item: Identifiable, Cell: View>: UIViewRepresentable {
 
-  public typealias UIViewControllerType = TiledViewController<Item, Cell>
+  public typealias UIViewType = TiledView<Item, Cell>
 
-  @Binding var viewController: TiledViewController<Item, Cell>?
+  @Binding var tiledView: TiledView<Item, Cell>?
   let items: [Item]
   let cellBuilder: (Item) -> Cell
   let heightCalculator: (Item, CGFloat) -> CGFloat
 
   public init(
-    viewController: Binding<TiledViewController<Item, Cell>?>,
+    tiledView: Binding<TiledView<Item, Cell>?>,
     items: [Item],
     @ViewBuilder cellBuilder: @escaping (Item) -> Cell,
     heightCalculator: @escaping (Item, CGFloat) -> CGFloat
   ) {
-    self._viewController = viewController
+    self._tiledView = tiledView
     self.items = items
     self.cellBuilder = cellBuilder
     self.heightCalculator = heightCalculator
   }
 
-  public func makeUIViewController(context: Context) -> TiledViewController<Item, Cell> {
-    let vc = TiledViewController(cellBuilder: cellBuilder, heightCalculator: heightCalculator)
+  public func makeUIView(context: Context) -> TiledView<Item, Cell> {
+    let view = TiledView(cellBuilder: cellBuilder, heightCalculator: heightCalculator)
     DispatchQueue.main.async {
-      viewController = vc
+      tiledView = view
     }
-    return vc
+    return view
   }
 
-  public func updateUIViewController(_ uiViewController: TiledViewController<Item, Cell>, context: Context) {
-    // Items are managed externally via viewController reference
+  public func updateUIView(_ uiView: TiledView<Item, Cell>, context: Context) {
+    // Items are managed externally via tiledView reference
   }
 }

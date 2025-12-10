@@ -39,20 +39,32 @@ private func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
 // MARK: - Chat Bubble View
 
 private struct ChatBubbleView: View {
+  
+  @State var isFolded: Bool = false
+  
   let message: ChatMessage
 
   var body: some View {
-    HStack {
-      Text(message.text)
-        .font(.system(size: 16))
-        .foregroundStyle(.primary)
-        .padding(12)
-        .background(
-          RoundedRectangle(cornerRadius: 12)
-            .fill(Color(.systemGray6))
-        )
-
-      Spacer(minLength: 44)
+    Group {
+      if isFolded {
+        Text("Tap to open")
+      } else {
+        HStack {
+          Text(message.text)
+            .font(.system(size: 16))
+            .foregroundStyle(.primary)
+            .padding(12)
+            .background(
+              RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemGray6))
+            )
+          
+          Spacer(minLength: 44)
+        }
+      }    
+    }
+    .onTapGesture {
+      isFolded.toggle()
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 8)
@@ -78,7 +90,7 @@ private func calculateCellHeight(for message: ChatMessage, width: CGFloat) -> CG
 
 struct BookTiledView: View {
 
-  @State private var viewController: TiledViewController<ChatMessage, ChatBubbleView>?
+  @State private var tiledView: TiledView<ChatMessage, ChatBubbleView>?
   @State private var nextPrependId = -1
   @State private var nextAppendId = 20
 
@@ -86,18 +98,18 @@ struct BookTiledView: View {
     VStack(spacing: 0) {
       HStack {
         Button("Prepend 5") {
-          guard let viewController else { return }
+          guard let tiledView else { return }
           let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
-          viewController.prependItems(messages)
+          tiledView.prependItems(messages)
           nextPrependId -= 5
         }
 
         Spacer()
 
         Button("Append 5") {
-          guard let viewController else { return }
+          guard let tiledView else { return }
           let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-          viewController.appendItems(messages)
+          tiledView.appendItems(messages)
           nextAppendId += 5
         }
       }
@@ -105,7 +117,7 @@ struct BookTiledView: View {
       .background(Color(.systemBackground))
 
       TiledViewRepresentable(
-        viewController: $viewController,
+        tiledView: $tiledView,
         items: [],
         cellBuilder: { message in
           ChatBubbleView(message: message)
@@ -115,7 +127,7 @@ struct BookTiledView: View {
       .onAppear {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
           let initial = generateSampleMessages(count: 20, startId: 0)
-          viewController?.setItems(initial)
+          tiledView?.setItems(initial)
         }
       }
     }

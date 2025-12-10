@@ -25,8 +25,16 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     )
   }
 
+  public override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
+    collectionView?.bounds.size != newBounds.size
+  }
+
   public override func prepare() {
     guard let collectionView else { return }
+
+    // contentInsetを自動更新
+    collectionView.contentInset = calculateContentInset()
+
     itemAttributes.removeAll()
 
     let itemCount = collectionView.numberOfItems(inSection: 0)
