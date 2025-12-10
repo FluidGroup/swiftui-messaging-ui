@@ -50,7 +50,7 @@ public final class TiledViewCell: UICollectionViewCell {
 
 // MARK: - TiledView
 
-public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
+public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
 
   private var collectionView: UICollectionView!
   private var tiledLayout: TiledCollectionViewLayout!
@@ -60,6 +60,10 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
 
   /// サイズ計測用のCell（再利用）
   private lazy var sizingCell = TiledViewCell()
+
+  /// DataSource tracking
+  private var lastDataSourceID: UUID?
+  private var appliedCursor: Int = 0
 
   public var onPrepend: (() -> Void)?
   public var onAppend: (() -> Void)?
@@ -155,6 +159,65 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
     collectionView.layoutIfNeeded()
   }
 
+  // MARK: - DataSource-based API
+
+  /// Applies changes from a TiledDataSource.
+  /// Uses cursor tracking to apply only new changes since last application.
+  public func applyDataSource(_ dataSource: TiledDataSource<Item>) {
+    // Check if this is a new DataSource instance
+    if lastDataSourceID != dataSource.id {
+      lastDataSourceID = dataSource.id
+      appliedCursor = 0
+      tiledLayout.clear()
+      items = []
+    }
+
+    // Apply only changes after the cursor
+    let pendingChanges = dataSource.pendingChanges
+    guard appliedCursor < pendingChanges.count else { return }
+
+    let newChanges = pendingChanges[appliedCursor...]
+    for change in newChanges {
+      applyChange(change)
+    }
+    appliedCursor = pendingChanges.count
+  }
+
+  private func applyChange(_ change: TiledDataSource<Item>.Change) {
+    switch change {
+    case .setItems(let newItems):
+      tiledLayout.clear()
+      items = newItems
+      tiledLayout.appendItems(count: newItems.count, startingIndex: 0)
+      collectionView.reloadData()
+
+    case .prepend(let newItems):
+      items.insert(contentsOf: newItems, at: 0)
+      tiledLayout.prependItems(count: newItems.count)
+      collectionView.reloadData()
+
+    case .append(let newItems):
+      let startingIndex = items.count
+      items.append(contentsOf: newItems)
+      tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
+      collectionView.reloadData()
+
+    case .update(let updatedItems):
+      for item in updatedItems {
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+          items[index] = item
+        }
+      }
+      collectionView.reloadData()
+
+    case .remove(let ids):
+      let idsSet = Set(ids.map { AnyHashable($0) })
+      items.removeAll { idsSet.contains(AnyHashable($0.id)) }
+      // TODO: Update layout to handle removal
+      collectionView.reloadData()
+    }
+  }
+
   // MARK: UICollectionViewDataSource
 
   public func numberOfSections(in collectionView: UICollectionView) -> Int {
@@ -181,33 +244,28 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
 
 // MARK: - TiledViewRepresentable
 
-public struct TiledViewRepresentable<Item: Identifiable, Cell: View>: UIViewRepresentable {
+public struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIViewRepresentable {
 
   public typealias UIViewType = TiledView<Item, Cell>
 
-  @Binding var tiledView: TiledView<Item, Cell>?
-  let items: [Item]
+  let dataSource: TiledDataSource<Item>
   let cellBuilder: (Item) -> Cell
 
   public init(
-    tiledView: Binding<TiledView<Item, Cell>?>,
-    items: [Item],
+    dataSource: TiledDataSource<Item>,
     @ViewBuilder cellBuilder: @escaping (Item) -> Cell
   ) {
-    self._tiledView = tiledView
-    self.items = items
+    self.dataSource = dataSource
     self.cellBuilder = cellBuilder
   }
 
   public func makeUIView(context: Context) -> TiledView<Item, Cell> {
     let view = TiledView(cellBuilder: cellBuilder)
-    DispatchQueue.main.async {
-      tiledView = view
-    }
+    view.applyDataSource(dataSource)
     return view
   }
 
   public func updateUIView(_ uiView: TiledView<Item, Cell>, context: Context) {
-    // Items are managed externally via tiledView reference
+    uiView.applyDataSource(dataSource)
   }
 }

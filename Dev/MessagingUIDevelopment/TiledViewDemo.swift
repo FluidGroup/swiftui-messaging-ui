@@ -10,7 +10,7 @@ import MessagingUI
 
 // MARK: - Sample Data
 
-struct ChatMessage: Identifiable, Hashable, Sendable {
+struct ChatMessage: Identifiable, Hashable, Equatable, Sendable {
   let id: Int
   let text: String
 }
@@ -77,26 +77,29 @@ private struct ChatBubbleView: View {
 
 struct BookTiledView: View {
 
-  @State private var tiledView: TiledView<ChatMessage, ChatBubbleView>?
+  @State private var dataSource: TiledDataSource<ChatMessage>
   @State private var nextPrependId = -1
   @State private var nextAppendId = 20
+
+  init() {
+    let initial = generateSampleMessages(count: 20, startId: 0)
+    _dataSource = State(initialValue: TiledDataSource(items: initial))
+  }
 
   var body: some View {
     VStack(spacing: 0) {
       HStack {
         Button("Prepend 5") {
-          guard let tiledView else { return }
           let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
-          tiledView.prependItems(messages)
+          dataSource.prepend(messages)
           nextPrependId -= 5
         }
 
         Spacer()
 
         Button("Append 5") {
-          guard let tiledView else { return }
           let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-          tiledView.appendItems(messages)
+          dataSource.append(messages)
           nextAppendId += 5
         }
       }
@@ -104,18 +107,11 @@ struct BookTiledView: View {
       .background(Color(.systemBackground))
 
       TiledViewRepresentable(
-        tiledView: $tiledView,
-        items: [],
+        dataSource: dataSource,
         cellBuilder: { message in
           ChatBubbleView(message: message)
         }
       )
-      .onAppear {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-          let initial = generateSampleMessages(count: 20, startId: 0)
-          tiledView?.setItems(initial)
-        }
-      }
     }
   }
 }
