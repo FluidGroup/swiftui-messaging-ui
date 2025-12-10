@@ -64,26 +64,13 @@ private struct ChatBubbleView: View {
       }    
     }
     .onTapGesture {
-      isFolded.toggle()
+      withAnimation(.bouncy) {
+        isFolded.toggle()
+      }
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 8)
   }
-}
-
-// MARK: - Height Calculator
-
-private func calculateCellHeight(for message: ChatMessage, width: CGFloat) -> CGFloat {
-  let padding: CGFloat = 12
-  let maxBubbleWidth = width - 60
-
-  let label = UILabel()
-  label.numberOfLines = 0
-  label.font = .systemFont(ofSize: 16)
-  label.text = message.text
-
-  let labelSize = label.sizeThatFits(CGSize(width: maxBubbleWidth - padding * 2, height: .greatestFiniteMagnitude))
-  return labelSize.height + padding * 2 + 16
 }
 
 // MARK: - Demo View

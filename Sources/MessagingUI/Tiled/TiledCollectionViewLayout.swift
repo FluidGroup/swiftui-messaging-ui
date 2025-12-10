@@ -11,9 +11,19 @@ import UIKit
 
 public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
-  private var itemAttributes: [IndexPath: UICollectionViewLayoutAttributes] = [:]
+  // MARK: - Configuration
+
+  /// Enables caching of layout attributes for better scroll performance.
+  /// When enabled, attributes are reused instead of being recreated on each prepare() call.
+  public var usesAttributesCache: Bool = true
+
+  // MARK: - Private Properties
+
+  private var attributesCache: [IndexPath: UICollectionViewLayoutAttributes] = [:]
   private var itemYPositions: [CGFloat] = []
   private var itemHeights: [CGFloat] = []
+  private var lastPreparedBoundsSize: CGSize = .zero
+  private var needsFullAttributesRebuild: Bool = true
 
   private let virtualContentHeight: CGFloat = 100_000_000
   private let anchorY: CGFloat = 50_000_000
@@ -35,31 +45,71 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     // contentInsetを自動更新
     collectionView.contentInset = calculateContentInset()
 
-    itemAttributes.removeAll()
-
+    let boundsSize = collectionView.bounds.size
     let itemCount = collectionView.numberOfItems(inSection: 0)
 
-    for index in 0..<itemCount {
-      guard index < itemYPositions.count else { break }
+    // Check if we need to rebuild attributes
+    let boundsSizeChanged = lastPreparedBoundsSize != boundsSize
+    let shouldRebuild = !usesAttributesCache || needsFullAttributesRebuild || boundsSizeChanged
 
-      let indexPath = IndexPath(item: index, section: 0)
-      let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
-      attributes.frame = CGRect(
-        x: 0,
-        y: itemYPositions[index],
-        width: collectionView.bounds.width,
-        height: itemHeights[index]
-      )
-      itemAttributes[indexPath] = attributes
+    if shouldRebuild {
+      attributesCache.removeAll(keepingCapacity: usesAttributesCache)
+      lastPreparedBoundsSize = boundsSize
+
+      for index in 0..<itemCount {
+        guard index < itemYPositions.count else { break }
+
+        let indexPath = IndexPath(item: index, section: 0)
+        let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
+        attributes.frame = CGRect(
+          x: 0,
+          y: itemYPositions[index],
+          width: boundsSize.width,
+          height: itemHeights[index]
+        )
+        attributesCache[indexPath] = attributes
+      }
+
+      needsFullAttributesRebuild = false
+    } else {
+      // Update only frames (positions may have changed due to height updates)
+      for index in 0..<itemCount {
+        guard index < itemYPositions.count else { break }
+
+        let indexPath = IndexPath(item: index, section: 0)
+        if let attributes = attributesCache[indexPath] {
+          attributes.frame = CGRect(
+            x: 0,
+            y: itemYPositions[index],
+            width: boundsSize.width,
+            height: itemHeights[index]
+          )
+        } else {
+          // New item added, create attributes
+          let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
+          attributes.frame = CGRect(
+            x: 0,
+            y: itemYPositions[index],
+            width: boundsSize.width,
+            height: itemHeights[index]
+          )
+          attributesCache[indexPath] = attributes
+        }
+      }
+
+      // Remove stale entries if item count decreased
+      if attributesCache.count > itemCount {
+        attributesCache = attributesCache.filter { $0.key.item < itemCount }
+      }
     }
   }
 
   public override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-    itemAttributes.values.filter { $0.frame.intersects(rect) }
+    attributesCache.values.filter { $0.frame.intersects(rect) }
   }
 
   public override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-    itemAttributes[indexPath]
+    attributesCache[indexPath]
   }
 
   // MARK: - Self-Sizing Support
@@ -141,7 +191,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   public func clear() {
     itemYPositions.removeAll()
     itemHeights.removeAll()
-    itemAttributes.removeAll()
+    attributesCache.removeAll()
+    needsFullAttributesRebuild = true
   }
 
   public func updateItemHeight(at index: Int, newHeight: CGFloat) {
