@@ -16,12 +16,14 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/siteline/swiftui-introspect", from: "26.0.0"),
+    .package(url: "https://github.com/apple/swift-collections", from: "1.3.0"),
   ],
   targets: [
     .target(
       name: "MessagingUI",
       dependencies: [
-        .product(name: "SwiftUIIntrospect", package: "swiftui-introspect")
+        .product(name: "SwiftUIIntrospect", package: "swiftui-introspect"),
+        .product(name: "DequeModule", package: "swift-collections")
       ]
     ),
     .testTarget(

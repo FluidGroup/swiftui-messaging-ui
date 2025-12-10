@@ -5,6 +5,7 @@
 //  Created by Hiroshi Kimura on 2025/12/10.
 //
 
+import DequeModule
 import UIKit
 
 // MARK: - TiledCollectionViewLayout
@@ -15,7 +16,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   /// Enables caching of layout attributes for better scroll performance.
   /// When enabled, attributes are reused instead of being recreated on each prepare() call.
-  public var usesAttributesCache: Bool = true
+  public var usesAttributesCache: Bool = false
 
   /// サイズを問い合わせるclosure。indexとwidthを渡し、サイズを返す。
   /// nilを返した場合はestimatedHeightを使用。
@@ -24,8 +25,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   // MARK: - Private Properties
 
   private var attributesCache: [IndexPath: UICollectionViewLayoutAttributes] = [:]
-  private var itemYPositions: [CGFloat] = []
-  private var itemHeights: [CGFloat] = []
+  private var itemYPositions: Deque<CGFloat> = []
+  private var itemHeights: Deque<CGFloat> = []
   private var lastPreparedBoundsSize: CGSize = .zero
   private var needsFullAttributesRebuild: Bool = true
 
@@ -39,9 +40,9 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     )
   }
 
-//  public override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
-//    collectionView?.bounds.size != newBounds.size
-//  }
+  public override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
+    collectionView?.bounds.size != newBounds.size
+  }
 
   public override func prepare() {
     guard let collectionView else { return }
@@ -122,7 +123,9 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     forPreferredLayoutAttributes preferredAttributes: UICollectionViewLayoutAttributes,
     withOriginalAttributes originalAttributes: UICollectionViewLayoutAttributes
   ) -> Bool {
-    preferredAttributes.frame.size.height != originalAttributes.frame.size.height
+    let shouldInvalidate = preferredAttributes.frame.size.height != originalAttributes.frame.size.height
+    print("[Layout] shouldInvalidateLayout index=\(preferredAttributes.indexPath.item) preferred=\(preferredAttributes.frame.size.height) original=\(originalAttributes.frame.size.height) -> \(shouldInvalidate)")
+    return shouldInvalidate
   }
 
   public override func invalidationContext(
@@ -136,6 +139,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
     let index = preferredAttributes.indexPath.item
     let newHeight = preferredAttributes.frame.size.height
+
+    print("[Layout] invalidationContext index=\(index) newHeight=\(newHeight) currentStoredHeight=\(index < itemHeights.count ? itemHeights[index] : -1)")
 
     if index < itemHeights.count {
       updateItemHeight(at: index, newHeight: newHeight)
@@ -176,18 +181,14 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
   }
 
-  public func firstItemY() -> CGFloat? {
-    itemYPositions.first
-  }
-
-  public func contentBounds() -> (top: CGFloat, bottom: CGFloat)? {
+  private func contentBounds() -> (top: CGFloat, bottom: CGFloat)? {
     guard let firstY = itemYPositions.first,
           let lastY = itemYPositions.last,
           let lastHeight = itemHeights.last else { return nil }
     return (firstY, lastY + lastHeight)
   }
 
-  public func calculateContentInset() -> UIEdgeInsets {
+  private func calculateContentInset() -> UIEdgeInsets {
     guard let bounds = contentBounds() else { return .zero }
 
     let topInset = bounds.top

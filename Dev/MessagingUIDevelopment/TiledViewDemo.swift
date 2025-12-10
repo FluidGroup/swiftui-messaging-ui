@@ -12,7 +12,8 @@ import MessagingUI
 
 struct ChatMessage: Identifiable, Hashable, Equatable, Sendable {
   let id: Int
-  let text: String
+  var text: String
+  var isExpanded: Bool = false
 }
 
 private func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
@@ -39,37 +40,74 @@ private func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
 // MARK: - Chat Bubble View
 
 private struct ChatBubbleView: View {
-  
-  @State var isFolded: Bool = false
-  
+
   let message: ChatMessage
 
+  @State private var isLocalExpanded: Bool = false
+
   var body: some View {
-    Group {
-      if isFolded {
-        Text("Tap to open")
-      } else {
+    HStack {
+      VStack(alignment: .leading, spacing: 4) {
         HStack {
-          Text(message.text)
-            .font(.system(size: 16))
-            .foregroundStyle(.primary)
-            .padding(12)
-            .background(
-              RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemGray6))
-            )
-          
-          Spacer(minLength: 44)
+          Text("ID: \(message.id)")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+          Spacer()
+
+          Image(systemName: isLocalExpanded ? "chevron.up" : "chevron.down")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-      }    
+
+        Text(message.text)
+          .font(.system(size: 16))
+
+        if message.isExpanded {
+          Text("(DataSource expanded)")
+            .font(.system(size: 14))
+            .foregroundStyle(.orange)
+        }
+
+        if isLocalExpanded {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("Local expanded content")
+              .font(.system(size: 14))
+              .foregroundStyle(.blue)
+
+            Text("This is additional content that appears when you tap the cell. It demonstrates that local @State changes can also affect cell height.")
+              .font(.system(size: 12))
+              .foregroundStyle(.secondary)
+
+            HStack {
+              ForEach(0..<3) { i in
+                Circle()
+                  .fill(Color.blue.opacity(0.3))
+                  .frame(width: 30, height: 30)
+                  .overlay(Text("\(i + 1)").font(.caption2))
+              }
+            }
+          }
+          .padding(.top, 8)
+        }
+      }
+      .padding(12)
+      .background(
+        RoundedRectangle(cornerRadius: 12)
+          .fill(Color(.systemGray6))
+      )
+
+      Spacer(minLength: 44)
     }
+    .contentShape(Rectangle())
     .onTapGesture {
-      withAnimation(.bouncy) {
-        isFolded.toggle()
+      withAnimation(.smooth) {        
+        isLocalExpanded.toggle()
       }
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 8)
+    .background(Color.init(white: 0.1, opacity: 0.5))
   }
 }
 
@@ -88,12 +126,30 @@ struct BookTiledView: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      controlPanel
+        .padding()
+        .background(Color(.systemBackground))
+
+      TiledViewRepresentable(
+        dataSource: dataSource,
+        cellBuilder: { message in
+          ChatBubbleView(message: message)
+        }
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var controlPanel: some View {
+    VStack(spacing: 12) {
+      // Row 1: Prepend / Append
       HStack {
         Button("Prepend 5") {
           let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
           dataSource.prepend(messages)
           nextPrependId -= 5
         }
+        .buttonStyle(.bordered)
 
         Spacer()
 
@@ -102,16 +158,44 @@ struct BookTiledView: View {
           dataSource.append(messages)
           nextAppendId += 5
         }
+        .buttonStyle(.bordered)
       }
-      .padding()
-      .background(Color(.systemBackground))
 
-      TiledViewRepresentable(
-        dataSource: dataSource,
-        cellBuilder: { message in
-          ChatBubbleView(message: message)
+      // Row 2: Update / Remove
+      HStack {
+        Button("Update ID:5") {
+          if var item = dataSource.items.first(where: { $0.id == 5 }) {
+            item.isExpanded.toggle()
+            item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
+            dataSource.update([item])
+          }
         }
-      )
+        .buttonStyle(.bordered)
+
+        Spacer()
+
+        Button("Remove ID:10") {
+          dataSource.remove(id: 10)
+        }
+        .buttonStyle(.bordered)
+      }
+
+      // Row 3: SetItems (Reset)
+      HStack {
+        Button("Reset (5 items)") {
+          nextPrependId = -1
+          nextAppendId = 5
+          let newItems = generateSampleMessages(count: 5, startId: 0)
+          dataSource.setItems(newItems)
+        }
+        .buttonStyle(.borderedProminent)
+
+        Spacer()
+
+        Text("Count: \(dataSource.items.count)")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
     }
   }
 }

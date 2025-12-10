@@ -23,13 +23,18 @@ public final class TiledViewCell: UICollectionViewCell {
 
   public override func prepareForReuse() {
     super.prepareForReuse()
-    contentConfiguration = nil
   }
 
   public override func preferredLayoutAttributesFitting(
     _ layoutAttributes: UICollectionViewLayoutAttributes
   ) -> UICollectionViewLayoutAttributes {
     let attributes = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
+
+    // MagazineLayout方式: contentViewの幅をlayoutAttributesと同期
+    // UIKitのバグでcontentView.boundsがlayoutAttributesと一致しないことがある
+    if contentView.bounds.width != layoutAttributes.size.width {
+      contentView.bounds.size.width = layoutAttributes.size.width
+    }
 
     // UIHostingConfigurationを使用している場合、systemLayoutSizeFittingでサイズを取得
     let targetSize = CGSize(
@@ -42,6 +47,8 @@ public final class TiledViewCell: UICollectionViewCell {
       withHorizontalFittingPriority: .required,
       verticalFittingPriority: .fittingSizeLevel
     )
+
+    print("[Cell] preferredLayoutAttributesFitting index=\(layoutAttributes.indexPath.item) original=\(layoutAttributes.frame.size.height) calculated=\(size.height) contentView.bounds=\(contentView.bounds)")
 
     attributes.frame.size.height = size.height
     return attributes
@@ -127,38 +134,6 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
     return size
   }
 
-  private func centerOnItems() {
-    guard let firstY = tiledLayout.firstItemY() else { return }
-    collectionView.contentOffset = CGPoint(x: 0, y: firstY - 100)
-  }
-
-  public func setItems(_ newItems: [Item]) {
-    tiledLayout.clear()
-    items = newItems
-    tiledLayout.appendItems(count: newItems.count, startingIndex: 0)
-    collectionView.reloadData()
-
-    DispatchQueue.main.async { [weak self] in
-      self?.centerOnItems()
-    }
-  }
-
-  public func prependItems(_ newItems: [Item]) {
-    items.insert(contentsOf: newItems, at: 0)
-    tiledLayout.prependItems(count: newItems.count)
-    collectionView.reloadData()
-    collectionView.invalidateIntrinsicContentSize()
-    collectionView.layoutIfNeeded()
-  }
-
-  public func appendItems(_ newItems: [Item]) {
-    let startingIndex = items.count
-    items.append(contentsOf: newItems)
-    tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
-    collectionView.reloadData()
-    collectionView.layoutIfNeeded()
-  }
-
   // MARK: - DataSource-based API
 
   /// Applies changes from a TiledDataSource.
@@ -211,8 +186,8 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
       collectionView.reloadData()
 
     case .remove(let ids):
-      let idsSet = Set(ids.map { AnyHashable($0) })
-      items.removeAll { idsSet.contains(AnyHashable($0.id)) }
+      let idsSet = Set(ids)
+      items.removeAll { idsSet.contains($0.id) }
       // TODO: Update layout to handle removal
       collectionView.reloadData()
     }
