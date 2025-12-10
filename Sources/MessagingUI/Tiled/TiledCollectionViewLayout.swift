@@ -62,8 +62,38 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     itemAttributes[indexPath]
   }
 
-  public func appendItems(heights: [CGFloat]) {
-    for height in heights {
+  // MARK: - Self-Sizing Support
+
+  public override func shouldInvalidateLayout(
+    forPreferredLayoutAttributes preferredAttributes: UICollectionViewLayoutAttributes,
+    withOriginalAttributes originalAttributes: UICollectionViewLayoutAttributes
+  ) -> Bool {
+    preferredAttributes.frame.size.height != originalAttributes.frame.size.height
+  }
+
+  public override func invalidationContext(
+    forPreferredLayoutAttributes preferredAttributes: UICollectionViewLayoutAttributes,
+    withOriginalAttributes originalAttributes: UICollectionViewLayoutAttributes
+  ) -> UICollectionViewLayoutInvalidationContext {
+    let context = super.invalidationContext(
+      forPreferredLayoutAttributes: preferredAttributes,
+      withOriginalAttributes: originalAttributes
+    )
+
+    let index = preferredAttributes.indexPath.item
+    let newHeight = preferredAttributes.frame.size.height
+
+    if index < itemHeights.count {
+      updateItemHeight(at: index, newHeight: newHeight)
+    }
+
+    return context
+  }
+
+  private let estimatedHeight: CGFloat = 44
+
+  public func appendItems(count: Int) {
+    for _ in 0..<count {
       let y: CGFloat
       if let lastY = itemYPositions.last, let lastHeight = itemHeights.last {
         y = lastY + lastHeight
@@ -71,15 +101,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
         y = anchorY
       }
       itemYPositions.append(y)
-      itemHeights.append(height)
+      itemHeights.append(estimatedHeight)
     }
   }
 
-  public func prependItems(heights: [CGFloat]) {
-    for height in heights.reversed() {
-      let y = (itemYPositions.first ?? anchorY) - height
+  public func prependItems(count: Int) {
+    for _ in 0..<count {
+      let y = (itemYPositions.first ?? anchorY) - estimatedHeight
       itemYPositions.insert(y, at: 0)
-      itemHeights.insert(height, at: 0)
+      itemHeights.insert(estimatedHeight, at: 0)
     }
   }
 

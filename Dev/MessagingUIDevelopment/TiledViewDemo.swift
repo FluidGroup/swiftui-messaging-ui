@@ -121,8 +121,7 @@ struct BookTiledView: View {
         items: [],
         cellBuilder: { message in
           ChatBubbleView(message: message)
-        },
-        heightCalculator: calculateCellHeight
+        }
       )
       .onAppear {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {

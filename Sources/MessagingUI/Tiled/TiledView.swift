@@ -14,8 +14,6 @@ public final class TiledViewCell: UICollectionViewCell {
 
   public static let reuseIdentifier = "TiledViewCell"
 
-  private var hostingController: UIHostingController<AnyView>?
-
   public func configure<Content: View>(with content: Content) {
     contentConfiguration = UIHostingConfiguration {
       content
@@ -25,7 +23,28 @@ public final class TiledViewCell: UICollectionViewCell {
 
   public override func prepareForReuse() {
     super.prepareForReuse()
-    hostingController = nil
+    contentConfiguration = nil
+  }
+
+  public override func preferredLayoutAttributesFitting(
+    _ layoutAttributes: UICollectionViewLayoutAttributes
+  ) -> UICollectionViewLayoutAttributes {
+    let attributes = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
+
+    // UIHostingConfigurationを使用している場合、systemLayoutSizeFittingでサイズを取得
+    let targetSize = CGSize(
+      width: layoutAttributes.frame.width,
+      height: UIView.layoutFittingCompressedSize.height
+    )
+
+    let size = contentView.systemLayoutSizeFitting(
+      targetSize,
+      withHorizontalFittingPriority: .required,
+      verticalFittingPriority: .fittingSizeLevel
+    )
+
+    attributes.frame.size.height = size.height
+    return attributes
   }
 }
 
@@ -38,17 +57,14 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
 
   private var items: [Item] = []
   private let cellBuilder: (Item) -> Cell
-  private let heightCalculator: (Item, CGFloat) -> CGFloat
 
   public var onPrepend: (() -> Void)?
   public var onAppend: (() -> Void)?
 
   public init(
-    cellBuilder: @escaping (Item) -> Cell,
-    heightCalculator: @escaping (Item, CGFloat) -> CGFloat
+    cellBuilder: @escaping (Item) -> Cell
   ) {
     self.cellBuilder = cellBuilder
-    self.heightCalculator = heightCalculator
     super.init(frame: .zero)
     setupCollectionView()
   }
@@ -85,10 +101,8 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
   }
 
   public func setItems(_ newItems: [Item]) {
-    let width = collectionView.bounds.width > 0 ? collectionView.bounds.width : 375
-    let heights = newItems.map { heightCalculator($0, width) }
     tiledLayout.clear()
-    tiledLayout.appendItems(heights: heights)
+    tiledLayout.appendItems(count: newItems.count)
     items = newItems
     collectionView.reloadData()
 
@@ -98,25 +112,14 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
   }
 
   public func prependItems(_ newItems: [Item]) {
-    let width = collectionView.bounds.width > 0 ? collectionView.bounds.width : 375
-    let heights = newItems.map { heightCalculator($0, width) }
-    tiledLayout.prependItems(heights: heights)
-
+    tiledLayout.prependItems(count: newItems.count)
     items.insert(contentsOf: newItems, at: 0)
     collectionView.reloadData()
   }
 
   public func appendItems(_ newItems: [Item]) {
-    let width = collectionView.bounds.width > 0 ? collectionView.bounds.width : 375
-    let heights = newItems.map { heightCalculator($0, width) }
-    tiledLayout.appendItems(heights: heights)
-
+    tiledLayout.appendItems(count: newItems.count)
     items.append(contentsOf: newItems)
-    collectionView.reloadData()
-  }
-
-  public func updateItemHeight(at index: Int, newHeight: CGFloat) {
-    tiledLayout.updateItemHeight(at: index, newHeight: newHeight)
     collectionView.reloadData()
   }
 
@@ -153,22 +156,19 @@ public struct TiledViewRepresentable<Item: Identifiable, Cell: View>: UIViewRepr
   @Binding var tiledView: TiledView<Item, Cell>?
   let items: [Item]
   let cellBuilder: (Item) -> Cell
-  let heightCalculator: (Item, CGFloat) -> CGFloat
 
   public init(
     tiledView: Binding<TiledView<Item, Cell>?>,
     items: [Item],
-    @ViewBuilder cellBuilder: @escaping (Item) -> Cell,
-    heightCalculator: @escaping (Item, CGFloat) -> CGFloat
+    @ViewBuilder cellBuilder: @escaping (Item) -> Cell
   ) {
     self._tiledView = tiledView
     self.items = items
     self.cellBuilder = cellBuilder
-    self.heightCalculator = heightCalculator
   }
 
   public func makeUIView(context: Context) -> TiledView<Item, Cell> {
-    let view = TiledView(cellBuilder: cellBuilder, heightCalculator: heightCalculator)
+    let view = TiledView(cellBuilder: cellBuilder)
     DispatchQueue.main.async {
       tiledView = view
     }
