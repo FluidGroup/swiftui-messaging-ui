@@ -32,14 +32,10 @@ struct ChatBubbleView: View {
         }
 
         if isLocalExpanded {
-          VStack(alignment: .leading, spacing: 8) {
+          VStack(alignment: .leading, spacing: 10) {
             Text("Local expanded content")
               .font(.system(size: 14))
               .foregroundStyle(.blue)
-
-            Text("This is additional.")
-              .font(.system(size: 12))
-              .foregroundStyle(.secondary)
             
             Text("This is additional content that appears when you tap the cell. It demonstrates that local @State changes can also affect cell height.")
               .font(.system(size: 12))
@@ -54,9 +50,8 @@ struct ChatBubbleView: View {
                   .overlay(Text("\(i + 1)").font(.caption2))
               }
             }
-          }
-          
-//          .padding(.top, 8)
+          }          
+          .padding(.top, 8)
         }
       }
       .padding(12)
@@ -80,11 +75,65 @@ struct ChatBubbleView: View {
   }
 }
 
-#Preview {
+#Preview("SwiftUI Direct") {
   ChatBubbleView(
     message: .init(
       id: 1,
       text: "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。"
     )
   )
+}
+struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
+  let content: Content
+
+  func makeUIViewController(context: Context) -> UIHostingController<Content> {
+    let hostingController = UIHostingController(rootView: content)
+    hostingController.view.backgroundColor = .systemBackground
+    hostingController.sizingOptions = .intrinsicContentSize
+    hostingController.view
+      .setContentCompressionResistancePriority(.required, for: .vertical)
+    hostingController.view.backgroundColor = .clear
+    hostingController.safeAreaRegions = []
+
+    return hostingController
+  }
+
+  func updateUIViewController(_ uiViewController: UIHostingController<Content>, context: Context) {
+    uiViewController.rootView = content
+  }
+  
+  func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: Self.UIViewControllerType, context: Self.Context) -> CGSize? {
+    
+    var size = uiViewController.sizeThatFits(
+     in: CGSize(
+        width: proposal.width ?? UIView.layoutFittingCompressedSize.width,
+        height: proposal.height ?? UIView.layoutFittingCompressedSize.height
+      )
+    )
+//           size.height += 80
+    print(size)
+                      
+
+    return size
+    
+    
+  }
+}
+#Preview("UIHostingController") {
+ 
+
+  ZStack {
+    HostingControllerWrapper(
+      content: ChatBubbleView(
+        message: .init(
+          id: 1,
+          text: "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。"
+        )
+      )
+    )
+  }
+  .background(.red)
+  .onGeometryChange(for: CGSize.self, of: \.size) { n in
+    print("Size changed: \(n)")
+  }
 }
