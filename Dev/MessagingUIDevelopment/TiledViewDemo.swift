@@ -21,6 +21,7 @@ private func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
     "こんにちは！",
     "今日はいい天気ですね。散歩に行きませんか？",
     "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。",
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt",
     "了解です👍",
     "ちょっと待ってください。確認してから返信しますね。",
     "週末の予定はどうですか？もし空いていたら、一緒にカフェでも行きませんか？新しくオープンしたお店があるんですよ。",
@@ -39,77 +40,7 @@ private func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
 
 // MARK: - Chat Bubble View
 
-private struct ChatBubbleView: View {
 
-  let message: ChatMessage
-
-  @State private var isLocalExpanded: Bool = false
-
-  var body: some View {
-    HStack {
-      VStack(alignment: .leading, spacing: 4) {
-        HStack {
-          Text("ID: \(message.id)")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-          Spacer()
-
-          Image(systemName: isLocalExpanded ? "chevron.up" : "chevron.down")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-
-        Text(message.text)
-          .font(.system(size: 16))
-
-        if message.isExpanded {
-          Text("(DataSource expanded)")
-            .font(.system(size: 14))
-            .foregroundStyle(.orange)
-        }
-
-        if isLocalExpanded {
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Local expanded content")
-              .font(.system(size: 14))
-              .foregroundStyle(.blue)
-
-            Text("This is additional content that appears when you tap the cell. It demonstrates that local @State changes can also affect cell height.")
-              .font(.system(size: 12))
-              .foregroundStyle(.secondary)
-
-            HStack {
-              ForEach(0..<3) { i in
-                Circle()
-                  .fill(Color.blue.opacity(0.3))
-                  .frame(width: 30, height: 30)
-                  .overlay(Text("\(i + 1)").font(.caption2))
-              }
-            }
-          }
-          .padding(.top, 8)
-        }
-      }
-      .padding(12)
-      .background(
-        RoundedRectangle(cornerRadius: 12)
-          .fill(Color(.systemGray6))
-      )
-
-      Spacer(minLength: 44)
-    }
-    .contentShape(Rectangle())
-    .onTapGesture {
-      withAnimation(.smooth) {        
-        isLocalExpanded.toggle()
-      }
-    }
-    .padding(.horizontal, 16)
-    .padding(.vertical, 8)
-    .background(Color.init(white: 0.1, opacity: 0.5))
-  }
-}
 
 // MARK: - Demo View
 
