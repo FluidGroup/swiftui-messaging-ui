@@ -23,6 +23,7 @@ public final class TiledViewCell: UICollectionViewCell {
 
   public override func prepareForReuse() {
     super.prepareForReuse()
+    contentConfiguration = nil
   }
 
   public override func preferredLayoutAttributesFitting(
@@ -31,12 +32,10 @@ public final class TiledViewCell: UICollectionViewCell {
     let attributes = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
 
     // MagazineLayout方式: contentViewの幅をlayoutAttributesと同期
-    // UIKitのバグでcontentView.boundsがlayoutAttributesと一致しないことがある
     if contentView.bounds.width != layoutAttributes.size.width {
       contentView.bounds.size.width = layoutAttributes.size.width
     }
 
-    // UIHostingConfigurationを使用している場合、systemLayoutSizeFittingでサイズを取得
     let targetSize = CGSize(
       width: layoutAttributes.frame.width,
       height: UIView.layoutFittingCompressedSize.height
@@ -48,7 +47,7 @@ public final class TiledViewCell: UICollectionViewCell {
       verticalFittingPriority: .fittingSizeLevel
     )
 
-    print("[Cell] preferredLayoutAttributesFitting index=\(layoutAttributes.indexPath.item) original=\(layoutAttributes.frame.size.height) calculated=\(size.height) contentView.bounds=\(contentView.bounds)")
+    print("[Cell] preferredLayoutAttributesFitting index=\(layoutAttributes.indexPath.item) original=\(layoutAttributes.frame.size.height) calculated=\(size.height)")
 
     attributes.frame.size.height = size.height
     return attributes
