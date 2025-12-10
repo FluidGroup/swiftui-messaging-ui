@@ -58,6 +58,9 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
   private var items: [Item] = []
   private let cellBuilder: (Item) -> Cell
 
+  /// サイズ計測用のHostingController（再利用）
+  private lazy var sizingHostingController = UIHostingController<Cell?>(rootView: nil)
+
   public var onPrepend: (() -> Void)?
   public var onAppend: (() -> Void)?
 
@@ -75,9 +78,13 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
 
   private func setupCollectionView() {
     tiledLayout = TiledCollectionViewLayout()
+    tiledLayout.itemSizeProvider = { [weak self] index, width in
+      self?.measureSize(at: index, width: width)
+    }
 
     collectionView = UICollectionView(frame: .zero, collectionViewLayout: tiledLayout)
     collectionView.translatesAutoresizingMaskIntoConstraints = false
+    collectionView.selfSizingInvalidation = .enabledIncludingConstraints
     collectionView.backgroundColor = .systemBackground
     collectionView.allowsSelection = true
     collectionView.dataSource = self
@@ -95,6 +102,19 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
     ])
   }
 
+  private func measureSize(at index: Int, width: CGFloat) -> CGSize? {
+    guard index < items.count else { return nil }
+    let item = items[index]
+    sizingHostingController.rootView = cellBuilder(item)
+    sizingHostingController.sizingOptions = .preferredContentSize
+    sizingHostingController.view.layoutIfNeeded()
+
+    let size = sizingHostingController.sizeThatFits(
+      in: .init(width: width, height: UIView.layoutFittingCompressedSize.height)
+    )
+    return size
+  }
+
   private func centerOnItems() {
     guard let firstY = tiledLayout.firstItemY() else { return }
     collectionView.contentOffset = CGPoint(x: 0, y: firstY - 100)
@@ -102,8 +122,8 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
 
   public func setItems(_ newItems: [Item]) {
     tiledLayout.clear()
-    tiledLayout.appendItems(count: newItems.count)
     items = newItems
+    tiledLayout.appendItems(count: newItems.count, startingIndex: 0)
     collectionView.reloadData()
 
     DispatchQueue.main.async { [weak self] in
@@ -112,15 +132,19 @@ public final class TiledView<Item: Identifiable, Cell: View>: UIView, UICollecti
   }
 
   public func prependItems(_ newItems: [Item]) {
-    tiledLayout.prependItems(count: newItems.count)
     items.insert(contentsOf: newItems, at: 0)
+    tiledLayout.prependItems(count: newItems.count)
     collectionView.reloadData()
+    collectionView.invalidateIntrinsicContentSize()
+    collectionView.layoutIfNeeded()
   }
 
   public func appendItems(_ newItems: [Item]) {
-    tiledLayout.appendItems(count: newItems.count)
+    let startingIndex = items.count
     items.append(contentsOf: newItems)
+    tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
     collectionView.reloadData()
+    collectionView.layoutIfNeeded()
   }
 
   // MARK: UICollectionViewDataSource

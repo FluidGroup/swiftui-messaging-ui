@@ -17,6 +17,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// When enabled, attributes are reused instead of being recreated on each prepare() call.
   public var usesAttributesCache: Bool = true
 
+  /// サイズを問い合わせるclosure。indexとwidthを渡し、サイズを返す。
+  /// nilを返した場合はestimatedHeightを使用。
+  public var itemSizeProvider: ((_ index: Int, _ width: CGFloat) -> CGSize?)?
+
   // MARK: - Private Properties
 
   private var attributesCache: [IndexPath: UICollectionViewLayoutAttributes] = [:]
@@ -35,9 +39,9 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     )
   }
 
-  public override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
-    collectionView?.bounds.size != newBounds.size
-  }
+//  public override func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
+//    collectionView?.bounds.size != newBounds.size
+//  }
 
   public override func prepare() {
     guard let collectionView else { return }
@@ -140,10 +144,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     return context
   }
 
-  private let estimatedHeight: CGFloat = 44
+  private let estimatedHeight: CGFloat = 100
 
-  public func appendItems(count: Int) {
-    for _ in 0..<count {
+  public func appendItems(count: Int, startingIndex: Int) {
+    let width = collectionView?.bounds.width ?? 0
+
+    for i in 0..<count {
+      let index = startingIndex + i
+      let height = itemSizeProvider?(index, width)?.height ?? estimatedHeight
+
       let y: CGFloat
       if let lastY = itemYPositions.last, let lastHeight = itemHeights.last {
         y = lastY + lastHeight
@@ -151,15 +160,19 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
         y = anchorY
       }
       itemYPositions.append(y)
-      itemHeights.append(estimatedHeight)
+      itemHeights.append(height)
     }
   }
 
   public func prependItems(count: Int) {
-    for _ in 0..<count {
-      let y = (itemYPositions.first ?? anchorY) - estimatedHeight
+    let width = collectionView?.bounds.width ?? 0
+
+    // prependは逆順で処理（index 0から順に挿入するため）
+    for i in (0..<count).reversed() {
+      let height = itemSizeProvider?(i, width)?.height ?? estimatedHeight
+      let y = (itemYPositions.first ?? anchorY) - height
       itemYPositions.insert(y, at: 0)
-      itemHeights.insert(estimatedHeight, at: 0)
+      itemHeights.insert(height, at: 0)
     }
   }
 
