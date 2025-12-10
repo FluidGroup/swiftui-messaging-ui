@@ -14,11 +14,14 @@ struct ContentView: View {
         NavigationLink("Message List Preview") {
           MessageListPreviewContainer()
         }
+        NavigationLink("BookTiledView") {
+          BookTiledView()
+        }
       }
     }
   }
 }
 
-#Preview {
+#Preview {  
   ContentView()
 }
