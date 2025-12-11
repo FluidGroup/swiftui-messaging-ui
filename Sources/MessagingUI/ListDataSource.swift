@@ -20,10 +20,10 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
   // MARK: - Change
 
   public enum Change: Equatable {
-    case setItems([Item])
-    case prepend([Item])
-    case append([Item])
-    case update([Item])
+    case setItems
+    case prepend([Item.ID])
+    case append([Item.ID])
+    case update([Item.ID])
     case remove([Item.ID])
   }
 
@@ -51,7 +51,7 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
 
   public init(items: [Item]) {
     self._items = Deque(items)
-    self.pendingChanges = [.setItems(items)]
+    self.pendingChanges = [.setItems]
     self.changeCounter = 1
   }
 
@@ -61,7 +61,7 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Use this for initial load or complete refresh.
   public mutating func setItems(_ items: [Item]) {
     self._items = Deque(items)
-    pendingChanges.append(.setItems(items))
+    pendingChanges.append(.setItems)
     changeCounter += 1
   }
 
@@ -69,10 +69,11 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Use this for loading older content (e.g., older messages).
   public mutating func prepend(_ items: [Item]) {
     guard !items.isEmpty else { return }
+    let ids = items.map { $0.id }
     for item in items.reversed() {
       self._items.prepend(item)
     }
-    pendingChanges.append(.prepend(items))
+    pendingChanges.append(.prepend(ids))
     changeCounter += 1
   }
 
@@ -80,8 +81,9 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Use this for loading newer content (e.g., new messages).
   public mutating func append(_ items: [Item]) {
     guard !items.isEmpty else { return }
+    let ids = items.map { $0.id }
     self._items.append(contentsOf: items)
-    pendingChanges.append(.append(items))
+    pendingChanges.append(.append(ids))
     changeCounter += 1
   }
 
@@ -89,15 +91,15 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Items that don't exist in the current list are ignored.
   public mutating func update(_ items: [Item]) {
     guard !items.isEmpty else { return }
-    var updatedItems: [Item] = []
+    var updatedIds: [Item.ID] = []
     for item in items {
       if let index = self._items.firstIndex(where: { $0.id == item.id }) {
         self._items[index] = item
-        updatedItems.append(item)
+        updatedIds.append(item.id)
       }
     }
-    if !updatedItems.isEmpty {
-      pendingChanges.append(.update(updatedItems))
+    if !updatedIds.isEmpty {
+      pendingChanges.append(.update(updatedIds))
       changeCounter += 1
     }
   }

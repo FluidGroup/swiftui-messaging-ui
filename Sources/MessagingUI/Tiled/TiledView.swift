@@ -154,34 +154,37 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
 
     let newChanges = pendingChanges[appliedCursor...]
     for change in newChanges {
-      applyChange(change)
+      applyChange(change, from: dataSource)
     }
     appliedCursor = pendingChanges.count
   }
 
-  private func applyChange(_ change: ListDataSource<Item>.Change) {
+  private func applyChange(_ change: ListDataSource<Item>.Change, from dataSource: ListDataSource<Item>) {
     switch change {
-    case .setItems(let newItems):
+    case .setItems:
       tiledLayout.clear()
-      items = newItems
-      tiledLayout.appendItems(count: newItems.count, startingIndex: 0)
+      items = dataSource.items
+      tiledLayout.appendItems(count: items.count, startingIndex: 0)
       collectionView.reloadData()
 
-    case .prepend(let newItems):
+    case .prepend(let ids):
+      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
       items.insert(contentsOf: newItems, at: 0)
       tiledLayout.prependItems(count: newItems.count)
       collectionView.reloadData()
 
-    case .append(let newItems):
+    case .append(let ids):
       let startingIndex = items.count
+      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
       items.append(contentsOf: newItems)
       tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
       collectionView.reloadData()
 
-    case .update(let updatedItems):
-      for item in updatedItems {
-        if let index = items.firstIndex(where: { $0.id == item.id }) {
-          items[index] = item
+    case .update(let ids):
+      for id in ids {
+        if let index = items.firstIndex(where: { $0.id == id }),
+           let newItem = dataSource.items.first(where: { $0.id == id }) {
+          items[index] = newItem
         }
       }
       collectionView.reloadData()

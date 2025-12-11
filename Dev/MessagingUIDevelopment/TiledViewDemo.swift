@@ -56,7 +56,38 @@ struct ListDemoControlPanel: View {
         .buttonStyle(.bordered)
       }
 
-      // Row 3: SetItems (Reset)
+      // Row 3: Batch operations (multiple pendingChanges)
+      HStack {
+        Button("Prepend+Append") {
+          // Creates 2 pendingChanges at once
+          let prependMessages = generateSampleMessages(count: 3, startId: nextPrependId - 2)
+          dataSource.prepend(prependMessages)
+          nextPrependId -= 3
+
+          let appendMessages = generateSampleMessages(count: 3, startId: nextAppendId)
+          dataSource.append(appendMessages)
+          nextAppendId += 3
+        }
+        .buttonStyle(.bordered)
+        .tint(.orange)
+
+        Spacer()
+
+        Button("Append+Prepend") {
+          // Creates 2 pendingChanges (append first, then prepend)
+          let appendMessages = generateSampleMessages(count: 3, startId: nextAppendId)
+          dataSource.append(appendMessages)
+          nextAppendId += 3
+
+          let prependMessages = generateSampleMessages(count: 3, startId: nextPrependId - 2)
+          dataSource.prepend(prependMessages)
+          nextPrependId -= 3
+        }
+        .buttonStyle(.bordered)
+        .tint(.orange)
+      }
+
+      // Row 4: SetItems (Reset) + Debug info
       HStack {
         Button("Reset (5 items)") {
           nextPrependId = -1
@@ -68,9 +99,13 @@ struct ListDemoControlPanel: View {
 
         Spacer()
 
-        Text("Count: \(dataSource.items.count)")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        VStack(alignment: .trailing, spacing: 2) {
+          Text("Count: \(dataSource.items.count)")
+            .font(.caption)
+          Text("ChangeCounter: \(dataSource.changeCounter)")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
       }
     }
   }
@@ -82,11 +117,10 @@ struct BookTiledView: View {
 
   @State private var dataSource: ListDataSource<ChatMessage>
   @State private var nextPrependId = -1
-  @State private var nextAppendId = 20
+  @State private var nextAppendId = 0
 
   init() {
-    let initial = generateSampleMessages(count: 20, startId: 0)
-    _dataSource = State(initialValue: ListDataSource(items: initial))
+    _dataSource = State(initialValue: ListDataSource())
   }
 
   var body: some View {
@@ -115,11 +149,10 @@ struct BookMessageList: View {
 
   @State private var dataSource: ListDataSource<ChatMessage>
   @State private var nextPrependId = -1
-  @State private var nextAppendId = 20
+  @State private var nextAppendId = 0
 
   init() {
-    let initial = generateSampleMessages(count: 20, startId: 0)
-    _dataSource = State(initialValue: ListDataSource(items: initial))
+    _dataSource = State(initialValue: ListDataSource())
   }
 
   var body: some View {
@@ -166,11 +199,10 @@ struct BookSideBySideComparison: View {
 
   @State private var dataSource: ListDataSource<ChatMessage>
   @State private var nextPrependId = -1
-  @State private var nextAppendId = 20
+  @State private var nextAppendId = 0
 
   init() {
-    let initial = generateSampleMessages(count: 20, startId: 0)
-    _dataSource = State(initialValue: ListDataSource(items: initial))
+    _dataSource = State(initialValue: ListDataSource())
   }
 
   var body: some View {
