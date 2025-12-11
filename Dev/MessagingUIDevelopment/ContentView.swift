@@ -81,6 +81,23 @@ struct ContentView: View {
               Image(systemName: "list.bullet")
             }
           }
+
+          NavigationLink {
+            BookApplyDiffDemo()
+              .navigationTitle("applyDiff Demo")
+              .navigationBarTitleDisplayMode(.inline)
+          } label: {
+            Label {
+              VStack(alignment: .leading) {
+                Text("applyDiff Demo")
+                Text("Auto-detect array changes")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "arrow.triangle.2.circlepath")
+            }
+          }
         }
 
         Section("Other Examples") {

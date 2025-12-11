@@ -72,15 +72,18 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Prepend trigger state
   private var isPrependTriggered: Bool = false
   private let prependThreshold: CGFloat = 100
+  private var prependTask: Task<Void, Never>?
 
   public typealias DataSource = ListDataSource<Item>
 
-  public var onPrepend: (() -> Void)?
+  public let onPrepend: (@MainActor () async throws -> Void)?
 
   public init(
-    cellBuilder: @escaping (Item) -> Cell
+    cellBuilder: @escaping (Item) -> Cell,
+    onPrepend: (@MainActor () async throws -> Void)? = nil
   ) {
     self.cellBuilder = cellBuilder
+    self.onPrepend = onPrepend
     super.init(frame: .zero)
     setupCollectionView()
   }
@@ -142,8 +145,15 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Applies changes from a ListDataSource.
   /// Uses cursor tracking to apply only new changes since last application.
   public func applyDataSource(_ dataSource: ListDataSource<Item>) {
+    print("[TiledView] applyDataSource called")
+    print("[TiledView] lastDataSourceID: \(String(describing: lastDataSourceID))")
+    print("[TiledView] dataSource.id: \(dataSource.id)")
+    print("[TiledView] appliedCursor: \(appliedCursor)")
+    print("[TiledView] pendingChanges.count: \(dataSource.pendingChanges.count)")
+
     // Check if this is a new DataSource instance
     if lastDataSourceID != dataSource.id {
+      print("[TiledView] -> NEW DataSource detected, resetting")
       lastDataSourceID = dataSource.id
       appliedCursor = 0
       tiledLayout.clear()
@@ -152,10 +162,15 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
     // Apply only changes after the cursor
     let pendingChanges = dataSource.pendingChanges
-    guard appliedCursor < pendingChanges.count else { return }
+    guard appliedCursor < pendingChanges.count else {
+      print("[TiledView] -> No new changes to apply")
+      return
+    }
 
     let newChanges = pendingChanges[appliedCursor...]
+    print("[TiledView] -> Applying \(newChanges.count) changes")
     for change in newChanges {
+      print("[TiledView] -> Applying change: \(change)")
       applyChange(change, from: dataSource)
     }
     appliedCursor = pendingChanges.count
@@ -183,11 +198,16 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       collectionView.reloadData()
 
     case .insert(let index, let ids):
+      print("[TiledView.insert] index: \(index), ids: \(ids)")
+      print("[TiledView.insert] dataSource.items: \(dataSource.items.map { $0.id })")
+      print("[TiledView.insert] self.items BEFORE: \(items.map { $0.id })")
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
+      print("[TiledView.insert] newItems found: \(newItems.map { $0.id })")
       for (offset, item) in newItems.enumerated() {
         items.insert(item, at: index + offset)
       }
-      // TODO: Update TiledCollectionViewLayout for middle insertions
+      print("[TiledView.insert] self.items AFTER: \(items.map { $0.id })")
+      tiledLayout.insertItems(count: newItems.count, at: index)
       collectionView.reloadData()
 
     case .update(let ids):
@@ -236,9 +256,12 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
     let offsetY = scrollView.contentOffset.y + scrollView.contentInset.top
 
     if offsetY <= prependThreshold {
-      if !isPrependTriggered {
+      if !isPrependTriggered && prependTask == nil {
         isPrependTriggered = true
-        onPrepend?()
+        prependTask = Task { @MainActor [weak self] in
+          defer { self?.prependTask = nil }
+          try? await self?.onPrepend?()
+        }
       }
     } else {
       isPrependTriggered = false
@@ -254,17 +277,20 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
 
   let dataSource: ListDataSource<Item>
   let cellBuilder: (Item) -> Cell
+  let onPrepend: (() async throws -> Void)?
 
   public init(
     dataSource: ListDataSource<Item>,
+    onPrepend: (() async throws -> Void)? = nil,
     @ViewBuilder cellBuilder: @escaping (Item) -> Cell
   ) {
     self.dataSource = dataSource
+    self.onPrepend = onPrepend
     self.cellBuilder = cellBuilder
   }
 
   public func makeUIView(context: Context) -> _TiledView<Item, Cell> {
-    let view = _TiledView(cellBuilder: cellBuilder)
+    let view = _TiledView(cellBuilder: cellBuilder, onPrepend: onPrepend)
     view.applyDataSource(dataSource)
     return view
   }

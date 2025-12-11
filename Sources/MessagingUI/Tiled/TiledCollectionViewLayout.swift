@@ -181,6 +181,39 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
   }
 
+  public func insertItems(count: Int, at index: Int) {
+    let width = collectionView?.bounds.width ?? 0
+
+    // Calculate the starting Y position for inserted items
+    let startY: CGFloat
+    if index < itemYPositions.count {
+      startY = itemYPositions[index]
+    } else if let lastY = itemYPositions.last, let lastHeight = itemHeights.last {
+      startY = lastY + lastHeight
+    } else {
+      startY = anchorY
+    }
+
+    // Calculate heights and insert
+    var currentY = startY
+    var totalInsertedHeight: CGFloat = 0
+
+    for i in 0..<count {
+      let height = itemSizeProvider?(index + i, width)?.height ?? estimatedHeight
+      itemYPositions.insert(currentY, at: index + i)
+      itemHeights.insert(height, at: index + i)
+      currentY += height
+      totalInsertedHeight += height
+    }
+
+    // Shift all items after the insertion point
+    for i in (index + count)..<itemYPositions.count {
+      itemYPositions[i] += totalInsertedHeight
+    }
+
+    needsFullAttributesRebuild = true
+  }
+
   private func contentBounds() -> (top: CGFloat, bottom: CGFloat)? {
     guard let firstY = itemYPositions.first,
           let lastY = itemYPositions.last,

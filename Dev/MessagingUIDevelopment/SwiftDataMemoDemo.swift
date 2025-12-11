@@ -221,6 +221,9 @@ struct SwiftDataMemoDemo: View {
 
           TiledView(
             dataSource: store.dataSource,
+            onPrepend: {
+              store.loadMore()
+            },
             cellBuilder: { item in
               MemoBubbleView(item: item)
             }
