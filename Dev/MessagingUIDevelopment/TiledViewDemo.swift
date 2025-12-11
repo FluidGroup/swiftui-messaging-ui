@@ -133,7 +133,7 @@ struct BookTiledView: View {
       .padding()
       .background(Color(.systemBackground))
 
-      TiledViewRepresentable(
+      TiledView(
         dataSource: dataSource,
         cellBuilder: { message in
           ChatBubbleView(message: message)
@@ -226,7 +226,7 @@ struct BookSideBySideComparison: View {
             .padding(.vertical, 4)
             .background(Color.blue.opacity(0.2))
 
-          TiledViewRepresentable(
+          TiledView(
             dataSource: dataSource,
             cellBuilder: { message in
               ChatBubbleView(message: message)

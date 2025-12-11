@@ -101,6 +101,24 @@ struct ContentView: View {
             }
           }
         }
+
+        Section("SwiftData Integration") {
+          NavigationLink {
+            SwiftDataMemoDemo()
+              .navigationBarTitleDisplayMode(.inline)
+          } label: {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Memo Stream")
+                Text("SwiftData + TiledView pagination")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "note.text")
+            }
+          }
+        }
       }
       .navigationTitle("MessagingUI")
     }

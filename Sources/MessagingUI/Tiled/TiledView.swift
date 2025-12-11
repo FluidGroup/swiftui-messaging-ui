@@ -47,16 +47,14 @@ public final class TiledViewCell: UICollectionViewCell {
       verticalFittingPriority: .fittingSizeLevel
     )
 
-    print("[Cell] preferredLayoutAttributesFitting index=\(layoutAttributes.indexPath.item) original=\(layoutAttributes.frame.size.height) calculated=\(size.height)")
-
     attributes.frame.size.height = size.height
     return attributes
   }
 }
 
-// MARK: - TiledView
+// MARK: - _TiledView
 
-public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
+public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
 
   private var collectionView: UICollectionView!
   private var tiledLayout: TiledCollectionViewLayout!
@@ -71,10 +69,13 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
   private var lastDataSourceID: UUID?
   private var appliedCursor: Int = 0
 
+  /// Prepend trigger state
+  private var isPrependTriggered: Bool = false
+  private let prependThreshold: CGFloat = 100
+
   public typealias DataSource = ListDataSource<Item>
 
   public var onPrepend: (() -> Void)?
-  public var onAppend: (() -> Void)?
 
   public init(
     cellBuilder: @escaping (Item) -> Cell
@@ -101,6 +102,7 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
     collectionView.allowsSelection = true
     collectionView.dataSource = self
     collectionView.delegate = self
+    collectionView.alwaysBounceVertical = true
 
     collectionView.register(TiledViewCell.self, forCellWithReuseIdentifier: TiledViewCell.reuseIdentifier)
 
@@ -180,6 +182,14 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
       tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
       collectionView.reloadData()
 
+    case .insert(let index, let ids):
+      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
+      for (offset, item) in newItems.enumerated() {
+        items.insert(item, at: index + offset)
+      }
+      // TODO: Update TiledCollectionViewLayout for middle insertions
+      collectionView.reloadData()
+
     case .update(let ids):
       for id in ids {
         if let index = items.firstIndex(where: { $0.id == id }),
@@ -219,13 +229,28 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
   public func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
     // Override in subclass or use closure if needed
   }
+
+  // MARK: - UIScrollViewDelegate
+
+  public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    let offsetY = scrollView.contentOffset.y + scrollView.contentInset.top
+
+    if offsetY <= prependThreshold {
+      if !isPrependTriggered {
+        isPrependTriggered = true
+        onPrepend?()
+      }
+    } else {
+      isPrependTriggered = false
+    }
+  }
 }
 
-// MARK: - TiledViewRepresentable
+// MARK: - TiledView
 
-public struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIViewRepresentable {
+public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepresentable {
 
-  public typealias UIViewType = TiledView<Item, Cell>
+  public typealias UIViewType = _TiledView<Item, Cell>
 
   let dataSource: ListDataSource<Item>
   let cellBuilder: (Item) -> Cell
@@ -238,13 +263,13 @@ public struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>
     self.cellBuilder = cellBuilder
   }
 
-  public func makeUIView(context: Context) -> TiledView<Item, Cell> {
-    let view = TiledView(cellBuilder: cellBuilder)
+  public func makeUIView(context: Context) -> _TiledView<Item, Cell> {
+    let view = _TiledView(cellBuilder: cellBuilder)
     view.applyDataSource(dataSource)
     return view
   }
 
-  public func updateUIView(_ uiView: TiledView<Item, Cell>, context: Context) {
+  public func updateUIView(_ uiView: _TiledView<Item, Cell>, context: Context) {
     uiView.applyDataSource(dataSource)
   }
 }
