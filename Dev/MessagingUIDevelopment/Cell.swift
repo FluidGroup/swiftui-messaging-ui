@@ -9,7 +9,7 @@ struct ChatMessage: Identifiable, Hashable, Equatable, Sendable {
 }
 
 func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
-  let sampleTexts = [
+  let sampleTexts: [String] = [
     "こんにちは！",
     "今日はいい天気ですね。散歩に行きませんか？",
     "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。",
@@ -54,8 +54,7 @@ struct ChatBubbleView: View {
         }
 
         Text(message.text)
-          .font(.system(size: 16))
-        
+          .font(.system(size: 16))        
 
         if message.isExpanded {
           Text("(DataSource expanded)")
@@ -72,10 +71,9 @@ struct ChatBubbleView: View {
             Text("This is additional content that appears when you tap the cell. It demonstrates that local @State changes can also affect cell height.")
               .font(.system(size: 12))
               .foregroundStyle(.secondary)
-//              .fixedSize(horizontal: false, vertical: true)
 
             HStack {
-              ForEach(0..<3) { i in
+              ForEach(0..<2) { i in
                 Circle()
                   .fill(Color.blue.opacity(0.3))
                   .frame(width: 30, height: 30)
@@ -136,36 +134,49 @@ struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
   
   func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: Self.UIViewControllerType, context: Self.Context) -> CGSize? {
     
-    let size = uiViewController.sizeThatFits(
-     in: CGSize(
+    var size = uiViewController.view.systemLayoutSizeFitting(
+      CGSize(
         width: proposal.width ?? UIView.layoutFittingCompressedSize.width,
-        height: proposal.height ?? UIView.layoutFittingCompressedSize.height
-      )
+        height: UIView.layoutFittingExpandedSize.height
+      ),
+      withHorizontalFittingPriority: .required,
+      verticalFittingPriority: .required
     )
-//           size.height += 80
+    
+//    size.height += 80
+    
     print(size)
                       
-
     return size
     
     
   }
 }
 #Preview("UIHostingController") {
- 
+  
+  @Previewable @State var size: CGSize = .zero
 
-  ZStack {
-    HostingControllerWrapper(
-      content: ChatBubbleView(
-        message: .init(
-          id: 1,
-          text: "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。"
-        )
+  VStack {
+    Text("Size: \(size.width) x \(size.height)")
+    ZStack {
+      HostingControllerWrapper(
+        content: 
+          ZStack {
+//            Color.clear
+            ChatBubbleView(
+              message: .init(
+                id: 1,
+                text: "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。"
+              )
+            )
+//            .fixedSize(horizontal: false, vertical: true)
+          }
       )
-    )
+    }
+    .background(.red)
+    .onGeometryChange(for: CGSize.self, of: \.size) { n in
+      size = n
+    }
   }
-  .background(.red)
-  .onGeometryChange(for: CGSize.self, of: \.size) { n in
-    print("Size changed: \(n)")
-  }
+  .padding(.trailing, 100)
 }
