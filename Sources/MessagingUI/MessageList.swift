@@ -6,8 +6,6 @@
 //
 
 import SwiftUI
-import SwiftUIIntrospect
-import Combine
 
 /// Change type for MessageList to track prepend/append operations.
 public enum ListDataSourceChangeType: Equatable, Sendable {
@@ -82,65 +80,137 @@ private struct _MessageListContent<Message: Identifiable & Equatable, Content: V
   @State private var appliedCursor: Int = 0
   /// Tracks the last DataSource ID to detect replacement
   @State private var lastDataSourceID: UUID?
+  /// Anchor message ID to preserve scroll position during prepend
+  @State private var anchorMessageID: Message.ID?
+  /// Flag to indicate we're in a prepend operation
+  @State private var isPrepending: Bool = false
 
-  /// Computes the change type for unapplied changes.
-  /// Prioritizes prepend if any unapplied change is a prepend.
-  private var unappliedChangeType: ListDataSourceChangeType? {
-    // Check if DataSource was replaced
-    if lastDataSourceID != dataSource.id {
-      return .setItems
+  var body: some View {
+    ScrollViewReader { proxy in
+      scrollContent
+        .defaultScrollAnchor(.bottom)
+        .modifier(ContentSizeChangeModifier(
+          isPrepending: $isPrepending,
+          anchorMessageID: $anchorMessageID,
+          autoScrollToBottom: autoScrollToBottom,
+          lastItemID: dataSource.items.last?.id,
+          proxy: proxy
+        ))
+        .onChange(of: dataSource.id) { _, newID in
+          // DataSource was replaced, reset cursor
+          lastDataSourceID = newID
+          appliedCursor = dataSource.pendingChanges.count
+          isPrepending = false
+          anchorMessageID = nil
+        }
+        .onChange(of: dataSource.changeCounter) { _, _ in
+          handleDataSourceChange()
+        }
+        .onAppear {
+          // Initialize tracking state
+          lastDataSourceID = dataSource.id
+          appliedCursor = dataSource.pendingChanges.count
+        }
     }
+  }
 
-    let changes = dataSource.pendingChanges
-    guard appliedCursor < changes.count else { return nil }
-
-    let unapplied = changes[appliedCursor...]
-
-    // Prioritize prepend for scroll position preservation
-    for change in unapplied {
-      if case .prepend = change {
-        return .prepend
-      }
-    }
-
-    // Return the first unapplied change type
-    return unapplied.first.map { change in
-      switch change {
-      case .setItems: return .setItems
-      case .prepend: return .prepend
-      case .append: return .append
-      case .update: return .update
-      case .remove: return .remove
+  private var scrollContent: some View {
+    ScrollView {
+      LazyVStack(spacing: 8) {
+        ForEach(dataSource.items) { message in
+          content(message)
+            .id(message.id)
+        }
       }
     }
   }
 
-  var body: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(spacing: 8) {
-          ForEach(dataSource.items) { message in
-            content(message)
+  private func handleDataSourceChange() {
+    // Check if any pending change is prepend
+    let hasPrepend = dataSource.pendingChanges[appliedCursor...].contains {
+      if case .prepend = $0 { return true }
+      return false
+    }
+
+    if hasPrepend {
+      // Remember the first item to anchor to after prepend
+      // After prepend, this item will no longer be at index 0
+      if let firstVisibleID = dataSource.items.first?.id {
+        anchorMessageID = firstVisibleID
+      }
+      isPrepending = true
+    } else {
+      isPrepending = false
+      anchorMessageID = nil
+    }
+
+    // Update cursor
+    appliedCursor = dataSource.pendingChanges.count
+  }
+}
+
+// MARK: - Content Size Change Modifier
+
+private struct ContentSizeChangeModifier<ID: Hashable>: ViewModifier {
+  @Binding var isPrepending: Bool
+  @Binding var anchorMessageID: ID?
+  let autoScrollToBottom: Binding<Bool>?
+  let lastItemID: ID?
+  let proxy: ScrollViewProxy
+
+  func body(content: Content) -> some View {
+    if #available(iOS 18.0, *) {
+      content
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+          geometry.contentSize.height
+        } action: { oldHeight, newHeight in
+          handleContentSizeChange(oldHeight: oldHeight, newHeight: newHeight)
+        }
+    } else {
+      // iOS 17: No onScrollGeometryChange, use onChange of data as fallback
+      content
+        .onChange(of: anchorMessageID) { _, newValue in
+          // When anchorMessageID is set and then layout happens,
+          // scroll to anchor on next run loop
+          if isPrepending, let anchorID = newValue {
+            DispatchQueue.main.async {
+              proxy.scrollTo(anchorID, anchor: .top)
+              isPrepending = false
+              anchorMessageID = nil
+            }
           }
         }
-      }
-      .scrollPositionPreserving(isPrepending: unappliedChangeType == .prepend)
-      .autoScrollToBottom(isEnabled: autoScrollToBottom)
-      .onChange(of: dataSource.id) { _, newID in
-        // DataSource was replaced, reset cursor
-        lastDataSourceID = newID
-        appliedCursor = dataSource.pendingChanges.count
-      }
-      .onChange(of: dataSource.changeCounter) { _, _ in
-        // Mark changes as applied after SwiftUI processes the update
-        DispatchQueue.main.async {
-          appliedCursor = dataSource.pendingChanges.count
+        .onChange(of: lastItemID) { _, newValue in
+          // Auto-scroll to bottom on append
+          if let autoScrollToBottom,
+             autoScrollToBottom.wrappedValue,
+             !isPrepending,
+             let lastID = newValue {
+            withAnimation(.easeOut(duration: 0.3)) {
+              proxy.scrollTo(lastID, anchor: .bottom)
+            }
+          }
         }
-      }
-      .onAppear {
-        // Initialize tracking state
-        lastDataSourceID = dataSource.id
-        appliedCursor = dataSource.pendingChanges.count
+    }
+  }
+
+  private func handleContentSizeChange(oldHeight: CGFloat, newHeight: CGFloat) {
+    let heightDiff = newHeight - oldHeight
+    guard heightDiff > 0 else { return }
+
+    if isPrepending, let anchorID = anchorMessageID {
+      // Prepend: Scroll to anchor message to preserve position
+      proxy.scrollTo(anchorID, anchor: .top)
+      isPrepending = false
+      anchorMessageID = nil
+    } else if let autoScrollToBottom,
+              autoScrollToBottom.wrappedValue,
+              !isPrepending {
+      // Append: Auto-scroll to bottom
+      if let lastID = lastItemID {
+        withAnimation(.easeOut(duration: 0.3)) {
+          proxy.scrollTo(lastID, anchor: .bottom)
+        }
       }
     }
   }

@@ -54,26 +54,30 @@ struct ChatBubbleView: View {
         }
 
         Text(message.text)
-          .font(.system(size: 16))        
+          .font(.system(size: 16))
+          .fixedSize(horizontal: false, vertical: true)
 
         if message.isExpanded {
           Text("(DataSource expanded)")
             .font(.system(size: 14))
             .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
         }
+        
 
         if isLocalExpanded {
           VStack(alignment: .leading, spacing: 10) {
             Text("Local expanded content")
               .font(.system(size: 14))
               .foregroundStyle(.blue)
+              .fixedSize(horizontal: false, vertical: true)
             
             Text("This is additional content that appears when you tap the cell. It demonstrates that local @State changes can also affect cell height.")
               .font(.system(size: 12))
-              .foregroundStyle(.secondary)
+              .fixedSize(horizontal: false, vertical: true)
 
             HStack {
-              ForEach(0..<2) { i in
+              ForEach(0..<3) { i in
                 Circle()
                   .fill(Color.blue.opacity(0.3))
                   .frame(width: 30, height: 30)
@@ -101,7 +105,10 @@ struct ChatBubbleView: View {
     .padding(.horizontal, 16)
     .padding(.vertical, 8)
     .background(Color.init(white: 0.1, opacity: 0.5))
- 
+    .contextMenu {
+      Button("Hello") {        
+      }
+    }
   }
 }
 
@@ -120,10 +127,12 @@ struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
     let hostingController = UIHostingController(rootView: content)
     hostingController.view.backgroundColor = .systemBackground
     hostingController.sizingOptions = .intrinsicContentSize
+    hostingController._disableSafeArea = true    
+    hostingController.view.backgroundColor = .clear
+    hostingController.view
+      .setContentHuggingPriority(.required, for: .vertical)
     hostingController.view
       .setContentCompressionResistancePriority(.required, for: .vertical)
-    hostingController.view.backgroundColor = .clear
-    hostingController.safeAreaRegions = []
 
     return hostingController
   }
@@ -137,14 +146,12 @@ struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
     var size = uiViewController.view.systemLayoutSizeFitting(
       CGSize(
         width: proposal.width ?? UIView.layoutFittingCompressedSize.width,
-        height: UIView.layoutFittingExpandedSize.height
+        height: 1000
       ),
       withHorizontalFittingPriority: .required,
-      verticalFittingPriority: .required
+      verticalFittingPriority: .fittingSizeLevel
     )
-    
-//    size.height += 80
-    
+        
     print(size)
                       
     return size
@@ -161,16 +168,12 @@ struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
     ZStack {
       HostingControllerWrapper(
         content: 
-          ZStack {
-//            Color.clear
             ChatBubbleView(
               message: .init(
                 id: 1,
                 text: "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。"
               )
             )
-//            .fixedSize(horizontal: false, vertical: true)
-          }
       )
     }
     .background(.red)
@@ -178,5 +181,4 @@ struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
       size = n
     }
   }
-  .padding(.trailing, 100)
 }
