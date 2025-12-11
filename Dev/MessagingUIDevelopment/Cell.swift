@@ -1,5 +1,37 @@
 import SwiftUI
 
+// MARK: - Sample Data
+
+struct ChatMessage: Identifiable, Hashable, Equatable, Sendable {
+  let id: Int
+  var text: String
+  var isExpanded: Bool = false
+}
+
+func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
+  let sampleTexts = [
+    "こんにちは！",
+    "今日はいい天気ですね。散歩に行きませんか？",
+    "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。",
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt",
+    "了解です👍",
+    "ちょっと待ってください。確認してから返信しますね。",
+    "週末の予定はどうですか？もし空いていたら、一緒にカフェでも行きませんか？新しくオープンしたお店があるんですよ。",
+    "OK",
+    "今から出発します！",
+    "長いメッセージのテストです。Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.",
+    "🎉🎊✨",
+  ]
+
+  return (0..<count).map { index in
+    let id = startId + index
+    let textIndex = abs(id) % sampleTexts.count
+    return ChatMessage(id: id, text: sampleTexts[textIndex])
+  }
+}
+
+// MARK: - Chat Bubble View
+
 struct ChatBubbleView: View {
 
   let message: ChatMessage
@@ -104,7 +136,7 @@ struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
   
   func sizeThatFits(_ proposal: ProposedViewSize, uiViewController: Self.UIViewControllerType, context: Self.Context) -> CGSize? {
     
-    var size = uiViewController.sizeThatFits(
+    let size = uiViewController.sizeThatFits(
      in: CGSize(
         width: proposal.width ?? UIView.layoutFittingCompressedSize.width,
         height: proposal.height ?? UIView.layoutFittingCompressedSize.height

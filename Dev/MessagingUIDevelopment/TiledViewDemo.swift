@@ -8,70 +8,15 @@
 import SwiftUI
 import MessagingUI
 
-// MARK: - Sample Data
+// MARK: - Shared Demo Control Panel
 
-struct ChatMessage: Identifiable, Hashable, Equatable, Sendable {
-  let id: Int
-  var text: String
-  var isExpanded: Bool = false
-}
+struct ListDemoControlPanel: View {
 
-private func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
-  let sampleTexts = [
-    "こんにちは！",
-    "今日はいい天気ですね。散歩に行きませんか？",
-    "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。",
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt",
-    "了解です👍",
-    "ちょっと待ってください。確認してから返信しますね。",
-    "週末の予定はどうですか？もし空いていたら、一緒にカフェでも行きませんか？新しくオープンしたお店があるんですよ。",
-    "OK",
-    "今から出発します！",
-    "長いメッセージのテストです。Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.",
-    "🎉🎊✨",
-  ]
-
-  return (0..<count).map { index in
-    let id = startId + index
-    let textIndex = abs(id) % sampleTexts.count
-    return ChatMessage(id: id, text: sampleTexts[textIndex])
-  }
-}
-
-// MARK: - Chat Bubble View
-
-
-
-// MARK: - Demo View
-
-struct BookTiledView: View {
-
-  @State private var dataSource: TiledDataSource<ChatMessage>
-  @State private var nextPrependId = -1
-  @State private var nextAppendId = 20
-
-  init() {
-    let initial = generateSampleMessages(count: 20, startId: 0)
-    _dataSource = State(initialValue: TiledDataSource(items: initial))
-  }
+  @Binding var dataSource: ListDataSource<ChatMessage>
+  @Binding var nextPrependId: Int
+  @Binding var nextAppendId: Int
 
   var body: some View {
-    VStack(spacing: 0) {
-      controlPanel
-        .padding()
-        .background(Color(.systemBackground))
-
-      TiledViewRepresentable(
-        dataSource: dataSource,
-        cellBuilder: { message in
-          ChatBubbleView(message: message)
-        }
-      )
-    }
-  }
-
-  @ViewBuilder
-  private var controlPanel: some View {
     VStack(spacing: 12) {
       // Row 1: Prepend / Append
       HStack {
@@ -131,6 +76,162 @@ struct BookTiledView: View {
   }
 }
 
-#Preview("TiledView Demo") {
+// MARK: - TiledView Demo (UICollectionView)
+
+struct BookTiledView: View {
+
+  @State private var dataSource: ListDataSource<ChatMessage>
+  @State private var nextPrependId = -1
+  @State private var nextAppendId = 20
+
+  init() {
+    let initial = generateSampleMessages(count: 20, startId: 0)
+    _dataSource = State(initialValue: ListDataSource(items: initial))
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      ListDemoControlPanel(
+        dataSource: $dataSource,
+        nextPrependId: $nextPrependId,
+        nextAppendId: $nextAppendId
+      )
+      .padding()
+      .background(Color(.systemBackground))
+
+      TiledViewRepresentable(
+        dataSource: dataSource,
+        cellBuilder: { message in
+          ChatBubbleView(message: message)
+        }
+      )
+    }
+  }
+}
+
+// MARK: - MessageList Demo (LazyVStack)
+
+struct BookMessageList: View {
+
+  @State private var dataSource: ListDataSource<ChatMessage>
+  @State private var nextPrependId = -1
+  @State private var nextAppendId = 20
+
+  init() {
+    let initial = generateSampleMessages(count: 20, startId: 0)
+    _dataSource = State(initialValue: ListDataSource(items: initial))
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      ListDemoControlPanel(
+        dataSource: $dataSource,
+        nextPrependId: $nextPrependId,
+        nextAppendId: $nextAppendId
+      )
+      .padding()
+      .background(Color(.systemBackground))
+
+      MessageList(
+        dataSource: dataSource
+      ) { message in
+        ChatBubbleView(message: message)
+      }
+    }
+  }
+}
+
+// MARK: - Comparison Demo (TabView)
+
+struct BookListComparison: View {
+
+  var body: some View {
+    TabView {
+      BookTiledView()
+        .tabItem {
+          Label("TiledView", systemImage: "square.grid.2x2")
+        }
+
+      BookMessageList()
+        .tabItem {
+          Label("MessageList", systemImage: "list.bullet")
+        }
+    }
+  }
+}
+
+// MARK: - Side-by-Side Comparison (Same DataSource)
+
+struct BookSideBySideComparison: View {
+
+  @State private var dataSource: ListDataSource<ChatMessage>
+  @State private var nextPrependId = -1
+  @State private var nextAppendId = 20
+
+  init() {
+    let initial = generateSampleMessages(count: 20, startId: 0)
+    _dataSource = State(initialValue: ListDataSource(items: initial))
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      // Shared Control Panel
+      ListDemoControlPanel(
+        dataSource: $dataSource,
+        nextPrependId: $nextPrependId,
+        nextAppendId: $nextAppendId
+      )
+      .padding()
+      .background(Color(.systemBackground))
+
+      // Side-by-side views
+      HStack(spacing: 1) {
+        // Left: TiledView (UICollectionView)
+        VStack(spacing: 0) {
+          Text("TiledView")
+            .font(.caption.bold())
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .background(Color.blue.opacity(0.2))
+
+          TiledViewRepresentable(
+            dataSource: dataSource,
+            cellBuilder: { message in
+              ChatBubbleView(message: message)
+            }
+          )
+        }
+
+        // Right: MessageList (LazyVStack)
+        VStack(spacing: 0) {
+          Text("MessageList")
+            .font(.caption.bold())
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 4)
+            .background(Color.green.opacity(0.2))
+
+          MessageList(dataSource: dataSource) { message in
+            ChatBubbleView(message: message)
+          }
+        }
+      }
+      .background(Color(.separator))
+    }
+  }
+}
+
+#Preview("Side by Side") {
+  BookSideBySideComparison()
+}
+
+#Preview("TiledView (UICollectionView)") {
   BookTiledView()
+}
+
+#Preview("MessageList (LazyVStack)") {
+  BookMessageList()
+}
+
+#Preview("Comparison") {
+  BookListComparison()
 }

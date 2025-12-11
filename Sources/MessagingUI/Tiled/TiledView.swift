@@ -71,6 +71,8 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
   private var lastDataSourceID: UUID?
   private var appliedCursor: Int = 0
 
+  public typealias DataSource = ListDataSource<Item>
+
   public var onPrepend: (() -> Void)?
   public var onAppend: (() -> Void)?
 
@@ -135,9 +137,9 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
 
   // MARK: - DataSource-based API
 
-  /// Applies changes from a TiledDataSource.
+  /// Applies changes from a ListDataSource.
   /// Uses cursor tracking to apply only new changes since last application.
-  public func applyDataSource(_ dataSource: TiledDataSource<Item>) {
+  public func applyDataSource(_ dataSource: ListDataSource<Item>) {
     // Check if this is a new DataSource instance
     if lastDataSourceID != dataSource.id {
       lastDataSourceID = dataSource.id
@@ -157,7 +159,7 @@ public final class TiledView<Item: Identifiable & Equatable, Cell: View>: UIView
     appliedCursor = pendingChanges.count
   }
 
-  private func applyChange(_ change: TiledDataSource<Item>.Change) {
+  private func applyChange(_ change: ListDataSource<Item>.Change) {
     switch change {
     case .setItems(let newItems):
       tiledLayout.clear()
@@ -222,11 +224,11 @@ public struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>
 
   public typealias UIViewType = TiledView<Item, Cell>
 
-  let dataSource: TiledDataSource<Item>
+  let dataSource: ListDataSource<Item>
   let cellBuilder: (Item) -> Cell
 
   public init(
-    dataSource: TiledDataSource<Item>,
+    dataSource: ListDataSource<Item>,
     @ViewBuilder cellBuilder: @escaping (Item) -> Cell
   ) {
     self.dataSource = dataSource

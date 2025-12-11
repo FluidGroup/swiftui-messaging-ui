@@ -9,7 +9,7 @@ private enum MessageSender {
   case other
 }
 
-private struct PreviewMessage: Identifiable {
+private struct PreviewMessage: Identifiable, Equatable, Hashable {
   let id: UUID
   let text: String
   let sender: MessageSender
@@ -22,12 +22,12 @@ private struct PreviewMessage: Identifiable {
 }
 
 struct MessageListPreviewContainer: View {
-  @State private var messages: [PreviewMessage] = [
+  @State private var dataSource = ListDataSource<PreviewMessage>(items: [
     PreviewMessage(text: "Hello, how are you?", sender: .other),
     PreviewMessage(text: "I'm fine, thank you!", sender: .me),
     PreviewMessage(text: "What about you?", sender: .other),
     PreviewMessage(text: "I'm doing great, thanks for asking!", sender: .me),
-  ]
+  ])
   @State private var isLoadingOlder = false
   @State private var autoScrollToBottom = true
   @State private var olderMessageCounter = 0
@@ -62,27 +62,14 @@ struct MessageListPreviewContainer: View {
         Toggle("Auto-scroll to new messages", isOn: $autoScrollToBottom)
           .font(.caption)
 
-        Text("Scroll up to load older messages")
+        Text("Use buttons to add messages")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
 
       MessageList(
-        messages: messages,
-        autoScrollToBottom: $autoScrollToBottom,
-        onLoadOlderMessages: {
-          print("Loading older messages...")
-          try? await Task.sleep(for: .seconds(1))
-
-          // Add older messages at the beginning
-          // The scroll position will be automatically maintained
-          let newMessages = (0..<5).map { _ in
-            let randomText = Self.sampleTexts.randomElement() ?? "Message"
-            let sender: MessageSender = Bool.random() ? .me : .other
-            return PreviewMessage(text: randomText, sender: sender)
-          }
-          messages.insert(contentsOf: newMessages.reversed(), at: 0)
-        }
+        dataSource: dataSource,
+        autoScrollToBottom: $autoScrollToBottom
       ) { message in
         Text(message.text)
           .padding(12)
@@ -92,38 +79,35 @@ struct MessageListPreviewContainer: View {
       }
 
       HStack(spacing: 12) {
-        Button("Add New Message") {
-          let randomText = Self.sampleTexts.randomElement() ?? "Message"
-          let sender: MessageSender = Bool.random() ? .me : .other
-          messages.append(PreviewMessage(text: randomText, sender: sender))
-        }
-        .buttonStyle(.borderedProminent)
-
-        Button("Add Old Message") {
-          count += 1
+        Button("Prepend 5") {
+          let newMessages = (0..<5).map { _ in
+            let randomText = Self.sampleTexts.randomElement() ?? "Message"
+            let sender: MessageSender = Bool.random() ? .me : .other
+            return PreviewMessage(text: randomText, sender: sender)
+          }
+          dataSource.prepend(newMessages)
         }
         .buttonStyle(.bordered)
 
+        Button("Append 5") {
+          let newMessages = (0..<5).map { _ in
+            let randomText = Self.sampleTexts.randomElement() ?? "Message"
+            let sender: MessageSender = Bool.random() ? .me : .other
+            return PreviewMessage(text: randomText, sender: sender)
+          }
+          dataSource.append(newMessages)
+        }
+        .buttonStyle(.borderedProminent)
+
         Button("Clear All", role: .destructive) {
-          messages.removeAll()
+          dataSource.setItems([])
         }
         .buttonStyle(.bordered)
       }
       .frame(maxWidth: .infinity, alignment: .trailing)
     }
     .padding()
-    .task(id: count) { 
-      let newMessages = (0..<10).map { _ in
-        let randomText = Self.sampleTexts.randomElement() ?? "Message"
-        let sender: MessageSender = Bool.random() ? .me : .other
-        return PreviewMessage(text: randomText, sender: sender)
-      }
-      try? await Task.sleep(for: .milliseconds(500))
-      messages.insert(contentsOf: newMessages.reversed(), at: 0)
-    }
   }
-  
-  @State var count: Int = 0
 }
 
 #Preview("Interactive Preview") {
@@ -131,12 +115,14 @@ struct MessageListPreviewContainer: View {
 }
 
 #Preview("Simple Preview") {
-  MessageList(messages: [
+  @Previewable @State var dataSource = ListDataSource<PreviewMessage>(items: [
     PreviewMessage(text: "Hello, how are you?", sender: .other),
     PreviewMessage(text: "I'm fine, thank you!", sender: .me),
     PreviewMessage(text: "What about you?", sender: .other),
     PreviewMessage(text: "I'm doing great, thanks for asking!", sender: .me),
-  ]) { message in
+  ])
+
+  MessageList(dataSource: dataSource) { message in
     Text(message.text)
       .padding(12)
       .background(message.sender == .me ? Color.green.opacity(0.2) : Color.blue.opacity(0.1))

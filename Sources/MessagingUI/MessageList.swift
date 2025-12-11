@@ -9,6 +9,15 @@ import SwiftUI
 import SwiftUIIntrospect
 import Combine
 
+/// Change type for MessageList to track prepend/append operations.
+public enum ListDataSourceChangeType: Equatable, Sendable {
+  case setItems
+  case prepend
+  case append
+  case update
+  case remove
+}
+
 /// # Spec
 ///
 /// - `MessageList` is a generic, scrollable message list component that displays messages using a custom view builder.
@@ -18,83 +27,64 @@ import Combine
 /// ## Usage
 ///
 /// ```swift
-/// MessageList(messages: messages) { message in
+/// @State private var dataSource = ListDataSource<ChatMessage>(items: messages)
+///
+/// MessageList(dataSource: dataSource) { message in
 ///   Text(message.text)
 ///     .padding(12)
 ///     .background(Color.blue.opacity(0.1))
 ///     .cornerRadius(8)
 /// }
 /// ```
-public struct MessageList<Message: Identifiable, Content: View>: View {
+public struct MessageList<Message: Identifiable & Equatable, Content: View>: View {
 
-  public let messages: [Message]
+  private let dataSource: ListDataSource<Message>
   private let content: (Message) -> Content
   private let autoScrollToBottom: Binding<Bool>?
-  private let onLoadOlderMessages: (@MainActor () async -> Void)?
 
-  /// Creates a simple message list without older message loading support.
-  ///
-  /// - Parameters:
-  ///   - messages: Array of messages to display. Must conform to `Identifiable`.
-  ///   - content: A view builder that creates the view for each message.
-  public init(
-    messages: [Message],
-    @ViewBuilder content: @escaping (Message) -> Content
-  ) {
-    self.messages = messages
-    self.content = content
-    self.autoScrollToBottom = nil
-    self.onLoadOlderMessages = nil
+  private var lastChangeType: ListDataSourceChangeType? {
+    dataSource.pendingChanges.last.map { change in
+      switch change {
+      case .setItems: return .setItems
+      case .prepend: return .prepend
+      case .append: return .append
+      case .update: return .update
+      case .remove: return .remove
+      }
+    }
   }
 
-  /// Creates a message list with older message loading support.
+  /// Creates a message list using a ListDataSource for change tracking.
+  ///
+  /// This initializer automatically detects prepend/append operations from the
+  /// data source's change history, enabling proper scroll position preservation.
   ///
   /// - Parameters:
-  ///   - messages: Array of messages to display. Must conform to `Identifiable`.
+  ///   - dataSource: A ListDataSource that tracks changes for efficient updates.
   ///   - autoScrollToBottom: Optional binding that controls automatic scrolling to bottom when new messages are added.
-  ///   - onLoadOlderMessages: Async closure called when user scrolls up to trigger loading older messages.
   ///   - content: A view builder that creates the view for each message.
   public init(
-    messages: [Message],
+    dataSource: ListDataSource<Message>,
     autoScrollToBottom: Binding<Bool>? = nil,
-    onLoadOlderMessages: @escaping @MainActor () async -> Void,
     @ViewBuilder content: @escaping (Message) -> Content
   ) {
-    self.messages = messages
+    self.dataSource = dataSource
     self.content = content
     self.autoScrollToBottom = autoScrollToBottom
-    self.onLoadOlderMessages = onLoadOlderMessages
   }
 
   public var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
         LazyVStack(spacing: 8) {
-          if onLoadOlderMessages != nil {
-            Section {
-              ForEach(messages) { message in
-                content(message)
-                  .anchorPreference(
-                    key: _VisibleMessagesPreference.self,
-                    value: .bounds
-                  ) { anchor in
-                    [_VisibleMessagePayload(messageId: AnyHashable(message.id), bounds: anchor)]
-                  }
+          ForEach(dataSource.items) { message in
+            content(message)
+              .anchorPreference(
+                key: _VisibleMessagesPreference.self,
+                value: .bounds
+              ) { anchor in
+                [_VisibleMessagePayload(messageId: AnyHashable(message.id), bounds: anchor)]
               }
-            } header: {
-              ProgressView()
-                .frame(height: 40)
-            }
-          } else {
-            ForEach(messages) { message in
-              content(message)
-                .anchorPreference(
-                  key: _VisibleMessagesPreference.self,
-                  value: .bounds
-                ) { anchor in
-                  [_VisibleMessagePayload(messageId: AnyHashable(message.id), bounds: anchor)]
-                }
-            }
           }
         }
       }
@@ -139,7 +129,8 @@ public struct MessageList<Message: Identifiable, Content: View>: View {
       .modifier(
         _OlderMessagesLoadingModifier(
           autoScrollToBottom: autoScrollToBottom,
-          onLoadOlderMessages: onLoadOlderMessages
+          onLoadOlderMessages: nil,
+          lastChangeType: lastChangeType
         )
       )
     }

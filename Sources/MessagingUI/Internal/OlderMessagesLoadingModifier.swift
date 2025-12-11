@@ -14,18 +14,24 @@ struct _OlderMessagesLoadingModifier: ViewModifier {
 
   private let autoScrollToBottom: Binding<Bool>?
   private let onLoadOlderMessages: (@MainActor () async -> Void)?
+  private let lastChangeType: ListDataSourceChangeType?
   private let leadingScreens: CGFloat = 1.0
 
   nonisolated init(
     autoScrollToBottom: Binding<Bool>?,
-    onLoadOlderMessages: (@MainActor () async -> Void)?
+    onLoadOlderMessages: (@MainActor () async -> Void)?,
+    lastChangeType: ListDataSourceChangeType? = nil
   ) {
     self.autoScrollToBottom = autoScrollToBottom
     self.onLoadOlderMessages = onLoadOlderMessages
+    self.lastChangeType = lastChangeType
   }
 
   func body(content: Content) -> some View {
-    if onLoadOlderMessages != nil {
+    // Apply scroll position preservation if either:
+    // 1. onLoadOlderMessages is provided (legacy API)
+    // 2. lastChangeType is provided (DataSource API)
+    if onLoadOlderMessages != nil || lastChangeType != nil {
       if #available(iOS 18.0, macOS 15.0, *) {
         content
           .introspect(.scrollView, on: .iOS(.v18, .v26)) { scrollView in
@@ -149,7 +155,9 @@ struct _OlderMessagesLoadingModifier: ViewModifier {
           let boundsHeight = scrollView.bounds.height
 
           // Case 1: Loading older messages → preserve scroll position (highest priority)
-          if isBackwardLoading {
+          // Use lastChangeType from DataSource if available, otherwise fall back to isBackwardLoading flag
+          let isPrepending = lastChangeType == .prepend || isBackwardLoading
+          if isPrepending {
             let newOffset = currentOffset + heightDiff
             scrollView.contentOffset.y = newOffset
           }

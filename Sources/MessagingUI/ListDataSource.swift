@@ -1,20 +1,21 @@
 //
-//  TiledDataSource.swift
+//  ListDataSource.swift
 //  MessagingUI
 //
 //  Created by Hiroshi Kimura on 2025/12/10.
 //
 
+import DequeModule
 import Foundation
 
-// MARK: - TiledDataSource
+// MARK: - ListDataSource
 
-/// A data source for TiledView that tracks changes for efficient updates.
+/// A data source that tracks changes for efficient list updates.
 ///
 /// Instead of directly modifying an array, use this data source's methods
-/// to modify items. This allows TiledView to know exactly what changed
-/// and update the layout accordingly without adjusting content offset.
-public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
+/// to modify items. This allows list views to know exactly what changed
+/// and update accordingly without adjusting content offset.
+public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
 
   // MARK: - Change
 
@@ -35,8 +36,11 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Change counter used as cursor for tracking applied changes.
   public private(set) var changeCounter: Int = 0
 
+  /// Internal storage using Deque for efficient prepend operations.
+  private var _items: Deque<Item> = []
+
   /// The current items in the data source.
-  public private(set) var items: [Item] = []
+  public var items: [Item] { Array(_items) }
 
   /// Pending changes that haven't been consumed by TiledView yet.
   internal private(set) var pendingChanges: [Change] = []
@@ -46,7 +50,7 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
   public init() {}
 
   public init(items: [Item]) {
-    self.items = items
+    self._items = Deque(items)
     self.pendingChanges = [.setItems(items)]
     self.changeCounter = 1
   }
@@ -56,7 +60,7 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Sets all items, replacing any existing items.
   /// Use this for initial load or complete refresh.
   public mutating func setItems(_ items: [Item]) {
-    self.items = items
+    self._items = Deque(items)
     pendingChanges.append(.setItems(items))
     changeCounter += 1
   }
@@ -65,7 +69,9 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Use this for loading older content (e.g., older messages).
   public mutating func prepend(_ items: [Item]) {
     guard !items.isEmpty else { return }
-    self.items.insert(contentsOf: items, at: 0)
+    for item in items.reversed() {
+      self._items.prepend(item)
+    }
     pendingChanges.append(.prepend(items))
     changeCounter += 1
   }
@@ -74,7 +80,7 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Use this for loading newer content (e.g., new messages).
   public mutating func append(_ items: [Item]) {
     guard !items.isEmpty else { return }
-    self.items.append(contentsOf: items)
+    self._items.append(contentsOf: items)
     pendingChanges.append(.append(items))
     changeCounter += 1
   }
@@ -85,8 +91,8 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
     guard !items.isEmpty else { return }
     var updatedItems: [Item] = []
     for item in items {
-      if let index = self.items.firstIndex(where: { $0.id == item.id }) {
-        self.items[index] = item
+      if let index = self._items.firstIndex(where: { $0.id == item.id }) {
+        self._items[index] = item
         updatedItems.append(item)
       }
     }
@@ -100,8 +106,8 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
   public mutating func remove(ids: [Item.ID]) {
     guard !ids.isEmpty else { return }
     let idsSet = Set(ids)
-    let removedIds = items.filter { idsSet.contains($0.id) }.map { $0.id }
-    self.items.removeAll { idsSet.contains($0.id) }
+    let removedIds = _items.filter { idsSet.contains($0.id) }.map { $0.id }
+    self._items.removeAll { idsSet.contains($0.id) }
     if !removedIds.isEmpty {
       pendingChanges.append(.remove(removedIds))
       changeCounter += 1
@@ -115,7 +121,7 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
 
   // MARK: - Equatable
 
-  public static func == (lhs: TiledDataSource<Item>, rhs: TiledDataSource<Item>) -> Bool {
+  public static func == (lhs: ListDataSource<Item>, rhs: ListDataSource<Item>) -> Bool {
     // Compare id and items, not pendingChanges or changeCounter
     // Different id means different data source instance
     lhs.id == rhs.id && lhs.items == rhs.items
@@ -124,16 +130,22 @@ public struct TiledDataSource<Item: Identifiable & Equatable>: Equatable {
 
 // MARK: - Item.ID Hashable conformance for Set operations
 
-extension TiledDataSource where Item.ID: Hashable {
+extension ListDataSource where Item.ID: Hashable {
 
   /// Removes items with the specified IDs (optimized for Hashable IDs).
   public mutating func remove(ids: Set<Item.ID>) {
     guard !ids.isEmpty else { return }
-    let removedIds = items.filter { ids.contains($0.id) }.map { $0.id }
-    self.items.removeAll { ids.contains($0.id) }
+    let removedIds = _items.filter { ids.contains($0.id) }.map { $0.id }
+    self._items.removeAll { ids.contains($0.id) }
     if !removedIds.isEmpty {
       pendingChanges.append(.remove(removedIds))
       changeCounter += 1
     }
   }
 }
+
+// MARK: - Backward Compatibility
+
+/// Backward compatibility alias for TiledDataSource.
+@available(*, deprecated, renamed: "ListDataSource")
+public typealias TiledDataSource<Item: Identifiable & Equatable> = ListDataSource<Item>
