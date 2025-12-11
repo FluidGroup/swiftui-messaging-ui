@@ -145,15 +145,8 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Applies changes from a ListDataSource.
   /// Uses cursor tracking to apply only new changes since last application.
   public func applyDataSource(_ dataSource: ListDataSource<Item>) {
-    print("[TiledView] applyDataSource called")
-    print("[TiledView] lastDataSourceID: \(String(describing: lastDataSourceID))")
-    print("[TiledView] dataSource.id: \(dataSource.id)")
-    print("[TiledView] appliedCursor: \(appliedCursor)")
-    print("[TiledView] pendingChanges.count: \(dataSource.pendingChanges.count)")
-
     // Check if this is a new DataSource instance
     if lastDataSourceID != dataSource.id {
-      print("[TiledView] -> NEW DataSource detected, resetting")
       lastDataSourceID = dataSource.id
       appliedCursor = 0
       tiledLayout.clear()
@@ -162,15 +155,10 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
     // Apply only changes after the cursor
     let pendingChanges = dataSource.pendingChanges
-    guard appliedCursor < pendingChanges.count else {
-      print("[TiledView] -> No new changes to apply")
-      return
-    }
+    guard appliedCursor < pendingChanges.count else { return }
 
     let newChanges = pendingChanges[appliedCursor...]
-    print("[TiledView] -> Applying \(newChanges.count) changes")
     for change in newChanges {
-      print("[TiledView] -> Applying change: \(change)")
       applyChange(change, from: dataSource)
     }
     appliedCursor = pendingChanges.count
@@ -198,15 +186,10 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       collectionView.reloadData()
 
     case .insert(let index, let ids):
-      print("[TiledView.insert] index: \(index), ids: \(ids)")
-      print("[TiledView.insert] dataSource.items: \(dataSource.items.map { $0.id })")
-      print("[TiledView.insert] self.items BEFORE: \(items.map { $0.id })")
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
-      print("[TiledView.insert] newItems found: \(newItems.map { $0.id })")
       for (offset, item) in newItems.enumerated() {
         items.insert(item, at: index + offset)
       }
-      print("[TiledView.insert] self.items AFTER: \(items.map { $0.id })")
       tiledLayout.insertItems(count: newItems.count, at: index)
       collectionView.reloadData()
 

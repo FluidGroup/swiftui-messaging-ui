@@ -123,9 +123,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     forPreferredLayoutAttributes preferredAttributes: UICollectionViewLayoutAttributes,
     withOriginalAttributes originalAttributes: UICollectionViewLayoutAttributes
   ) -> Bool {
-    let shouldInvalidate = preferredAttributes.frame.size.height != originalAttributes.frame.size.height
-    print("[Layout] shouldInvalidateLayout index=\(preferredAttributes.indexPath.item) preferred=\(preferredAttributes.frame.size.height) original=\(originalAttributes.frame.size.height) -> \(shouldInvalidate)")
-    return shouldInvalidate
+    preferredAttributes.frame.size.height != originalAttributes.frame.size.height
   }
 
   public override func invalidationContext(
@@ -139,8 +137,6 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
     let index = preferredAttributes.indexPath.item
     let newHeight = preferredAttributes.frame.size.height
-
-    print("[Layout] invalidationContext index=\(index) newHeight=\(newHeight) currentStoredHeight=\(index < itemHeights.count ? itemHeights[index] : -1)")
 
     if index < itemHeights.count {
       updateItemHeight(at: index, newHeight: newHeight)

@@ -73,7 +73,7 @@ struct MemoBubbleView: View {
   }
 }
 
-// MARK: - MemoStore
+// MARK: - MemoStore (using applyDiff)
 
 @Observable
 final class MemoStore {
@@ -81,50 +81,58 @@ final class MemoStore {
   private let modelContext: ModelContext
   private(set) var dataSource = ListDataSource<MemoItem>()
   private(set) var hasMore = true
-  private var oldestLoadedDate: Date?
 
+  /// 現在ロード済みの件数（ページネーション用）
+  private var loadedCount = 0
   private let pageSize = 10
 
   init(modelContext: ModelContext) {
     self.modelContext = modelContext
   }
 
+  /// 初期ロード: 最新10件を取得
   func loadInitial() {
-    var descriptor = FetchDescriptor<Memo>(
-      sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-    )
-    descriptor.fetchLimit = pageSize
-
-    let memos = (try? modelContext.fetch(descriptor)) ?? []
-    // 表示は古い→新しいなので reverse
-    let items = memos.reversed().map(MemoItem.init)
-    dataSource.setItems(Array(items))
-    oldestLoadedDate = memos.last?.createdAt
-    hasMore = memos.count == pageSize
+    loadedCount = pageSize
+    refreshFromDatabase()
   }
 
+  /// 過去のメモをロード: 取得件数を増やして再フェッチ
   func loadMore() {
-    guard let oldestDate = oldestLoadedDate, hasMore else { return }
-
-    var descriptor = FetchDescriptor<Memo>(
-      predicate: #Predicate { $0.createdAt < oldestDate },
-      sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
-    )
-    descriptor.fetchLimit = pageSize
-
-    let memos = (try? modelContext.fetch(descriptor)) ?? []
-    // prependなので古い順に追加
-    let items = memos.reversed().map(MemoItem.init)
-    dataSource.prepend(Array(items))
-    oldestLoadedDate = memos.last?.createdAt
-    hasMore = memos.count == pageSize
+    guard hasMore else { return }
+    loadedCount += pageSize
+    refreshFromDatabase()
   }
 
+  /// SwiftDataから取得してapplyDiffで差分適用
+  private func refreshFromDatabase() {
+    // 全件数を取得してoffsetを計算
+    let totalCount = (try? modelContext.fetchCount(FetchDescriptor<Memo>())) ?? 0
+    let offset = max(0, totalCount - loadedCount)
+
+    var descriptor = FetchDescriptor<Memo>(
+      sortBy: [SortDescriptor(\.createdAt, order: .forward)]  // 古い→新しい順
+    )
+    descriptor.fetchOffset = offset
+    descriptor.fetchLimit = loadedCount
+
+    let memos = (try? modelContext.fetch(descriptor)) ?? []
+    let items = memos.map(MemoItem.init)
+
+    // applyDiffで自動的に差分を検出・適用
+    dataSource.applyDiff(from: items)
+
+    hasMore = offset > 0
+  }
+
+  /// 新規メモ追加後にリフレッシュ
   func addMemo(text: String) {
     let memo = Memo(text: text)
     modelContext.insert(memo)
     try? modelContext.save()
-    dataSource.append([MemoItem(memo: memo)])
+
+    // 追加後は件数を1つ増やしてリフレッシュ
+    loadedCount += 1
+    refreshFromDatabase()
   }
 
   private static let sampleTexts = [
@@ -150,9 +158,12 @@ final class MemoStore {
       let text = Self.sampleTexts.randomElement() ?? "New memo"
       let memo = Memo(text: text)
       modelContext.insert(memo)
-      dataSource.append([MemoItem(memo: memo)])
     }
     try? modelContext.save()
+
+    // 追加した分だけ件数を増やしてリフレッシュ
+    loadedCount += count
+    refreshFromDatabase()
   }
 }
 
@@ -209,26 +220,15 @@ struct SwiftDataMemoDemo: View {
 
       // Memo list
       if let store {
-        VStack(spacing: 0) {
-          // Load More button
-          if store.hasMore {
-            Button("Load More") {
-              store.loadMore()
-            }
-            .buttonStyle(.bordered)
-            .padding(.vertical, 8)
+        TiledView(
+          dataSource: store.dataSource,
+          onPrepend: {
+            store.loadMore()
+          },
+          cellBuilder: { item in
+            MemoBubbleView(item: item)
           }
-
-          TiledView(
-            dataSource: store.dataSource,
-            onPrepend: {
-              store.loadMore()
-            },
-            cellBuilder: { item in
-              MemoBubbleView(item: item)
-            }
-          )
-        }
+        )
       } else {
         Spacer()
         ProgressView()

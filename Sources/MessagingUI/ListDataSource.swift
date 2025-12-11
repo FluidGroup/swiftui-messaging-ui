@@ -161,28 +161,20 @@ extension ListDataSource {
   public mutating func applyDiff(from newItems: [Item]) {
     let oldItems = self.items
 
-    print("[applyDiff] START")
-    print("[applyDiff] oldItems.count: \(oldItems.count), newItems.count: \(newItems.count)")
-    print("[applyDiff] oldIDs: \(oldItems.map { $0.id })")
-    print("[applyDiff] newIDs: \(newItems.map { $0.id })")
-
     // Empty to non-empty: use setItems
     if oldItems.isEmpty && !newItems.isEmpty {
-      print("[applyDiff] -> setItems (empty to non-empty)")
       setItems(newItems)
       return
     }
 
     // Non-empty to empty: remove all
     if !oldItems.isEmpty && newItems.isEmpty {
-      print("[applyDiff] -> remove all (non-empty to empty)")
       remove(ids: Set(oldItems.map { $0.id }))
       return
     }
 
     // Both empty: nothing to do
     if oldItems.isEmpty && newItems.isEmpty {
-      print("[applyDiff] -> no-op (both empty)")
       return
     }
 
@@ -190,7 +182,6 @@ extension ListDataSource {
     let oldIDs = oldItems.map { $0.id }
     let newIDs = newItems.map { $0.id }
     let diff = newIDs.difference(from: oldIDs)
-    print("[applyDiff] diff: \(diff)")
 
     // Build indexed insertion and removal lists
     var insertions: [(offset: Int, id: Item.ID)] = []
@@ -205,19 +196,14 @@ extension ListDataSource {
       }
     }
 
-    print("[applyDiff] insertions: \(insertions)")
-    print("[applyDiff] removedIDsSet: \(removedIDsSet)")
-
     // Handle removals first
     if !removedIDsSet.isEmpty {
-      print("[applyDiff] -> calling remove(ids:)")
       remove(ids: removedIDsSet)
     }
 
     // Classify insertions by position
     let newItemsDict = Dictionary(uniqueKeysWithValues: newItems.map { ($0.id, $0) })
     let insertedIDsSet = Set(insertions.map { $0.id })
-    print("[applyDiff] insertedIDsSet: \(insertedIDsSet)")
 
     // Find prepended items (consecutive from index 0)
     var prependedItems: [Item] = []
@@ -249,9 +235,6 @@ extension ListDataSource {
       }
     }
 
-    print("[applyDiff] prependedItems: \(prependedItems.map { $0.id })")
-    print("[applyDiff] appendedItems: \(appendedItems.map { $0.id })")
-
     // Find middle insertions
     let appendedIDsSet = Set(appendedItems.map { $0.id })
 
@@ -274,21 +257,16 @@ extension ListDataSource {
       }
     }
 
-    print("[applyDiff] middleInsertions: \(middleInsertions.map { (index: $0.index, ids: $0.items.map { $0.id }) })")
-
     // Apply changes in order
     if !prependedItems.isEmpty {
-      print("[applyDiff] -> calling prepend(\(prependedItems.map { $0.id }))")
       prepend(prependedItems)
     }
 
     for (index, items) in middleInsertions {
-      print("[applyDiff] -> calling insert(\(items.map { $0.id }), at: \(index))")
       insert(items, at: index)
     }
 
     if !appendedItems.isEmpty {
-      print("[applyDiff] -> calling append(\(appendedItems.map { $0.id }))")
       append(appendedItems)
     }
 
@@ -302,11 +280,8 @@ extension ListDataSource {
     }
 
     if !updatedItems.isEmpty {
-      print("[applyDiff] -> calling update(\(updatedItems.map { $0.id }))")
       update(updatedItems)
     }
-
-    print("[applyDiff] END - changeCounter: \(changeCounter)")
   }
 }
 
