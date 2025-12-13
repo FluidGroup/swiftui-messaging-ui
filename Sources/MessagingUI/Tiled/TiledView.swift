@@ -207,8 +207,12 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
     case .remove(let ids):
       let idsSet = Set(ids)
+      // Find indices before removing items
+      let indicesToRemove = items.enumerated()
+        .filter { idsSet.contains($0.element.id) }
+        .map { $0.offset }
       items.removeAll { idsSet.contains($0.id) }
-      // TODO: Update layout to handle removal
+      tiledLayout.removeItems(at: indicesToRemove)
       collectionView.reloadData()
     }
   }

@@ -18,8 +18,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// When enabled, attributes are reused instead of being recreated on each prepare() call.
   public var usesAttributesCache: Bool = false
 
-  /// サイズを問い合わせるclosure。indexとwidthを渡し、サイズを返す。
-  /// nilを返した場合はestimatedHeightを使用。
+  /// Closure to query item size. Receives index and width, returns size.
+  /// If nil is returned, estimatedHeight will be used.
   public var itemSizeProvider: ((_ index: Int, _ width: CGFloat) -> CGSize?)?
 
   // MARK: - Private Properties
@@ -47,7 +47,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   public override func prepare() {
     guard let collectionView else { return }
 
-    // contentInsetを自動更新
+    // Automatically update contentInset
     collectionView.contentInset = calculateContentInset()
 
     let boundsSize = collectionView.bounds.size
@@ -168,7 +168,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   public func prependItems(count: Int) {
     let width = collectionView?.bounds.width ?? 0
 
-    // prependは逆順で処理（index 0から順に挿入するため）
+    // Process in reverse order for prepend (to insert from index 0 sequentially)
     for i in (0..<count).reversed() {
       let height = itemSizeProvider?(i, width)?.height ?? estimatedHeight
       let y = (itemYPositions.first ?? anchorY) - height
@@ -229,6 +229,30 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       bottom: -bottomInset,
       right: 0
     )
+  }
+
+  public func removeItems(at indices: [Int]) {
+    guard !indices.isEmpty else { return }
+
+    // Sort indices in descending order to remove from end first
+    let sortedIndices = indices.sorted(by: >)
+
+    for index in sortedIndices {
+      guard index >= 0, index < itemYPositions.count else { continue }
+
+      let removedHeight = itemHeights[index]
+
+      // Remove the item
+      itemYPositions.remove(at: index)
+      itemHeights.remove(at: index)
+
+      // Shift all items after the removal point
+      for i in index..<itemYPositions.count {
+        itemYPositions[i] -= removedHeight
+      }
+    }
+
+    needsFullAttributesRebuild = true
   }
 
   public func clear() {

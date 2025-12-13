@@ -119,6 +119,7 @@ struct BookTiledView: View {
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
+  @State private var showingActionSheet = false
 
   let namespace: Namespace.ID
 
@@ -128,15 +129,7 @@ struct BookTiledView: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
-      ListDemoControlPanel(
-        dataSource: $dataSource,
-        nextPrependId: $nextPrependId,
-        nextAppendId: $nextAppendId
-      )
-      .padding()
-      .background(Color(.systemBackground))
-
+    Group {
       if #available(iOS 18.0, *) {
         TiledView(
           dataSource: dataSource,
@@ -159,6 +152,72 @@ struct BookTiledView: View {
             ChatBubbleView(message: message)
           }
         )
+      }
+    }
+    .safeAreaInset(edge: .bottom) {
+      HStack {
+        Text("\(dataSource.items.count) items")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Spacer()
+        Text("v\(dataSource.changeCounter)")
+          .font(.caption2)
+          .foregroundStyle(.tertiary)
+      }
+      .padding(.horizontal)
+      .padding(.vertical, 8)
+      .background(.bar)
+    }
+    .toolbar {
+      ToolbarItemGroup(placement: .primaryAction) {
+        Menu {
+          Button {
+            let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+            dataSource.prepend(messages)
+            nextPrependId -= 5
+          } label: {
+            Label("Prepend 5", systemImage: "arrow.up.doc")
+          }
+
+          Button {
+            let messages = generateSampleMessages(count: 5, startId: nextAppendId)
+            dataSource.append(messages)
+            nextAppendId += 5
+          } label: {
+            Label("Append 5", systemImage: "arrow.down.doc")
+          }
+
+          Divider()
+
+          Button {
+            if var item = dataSource.items.first(where: { $0.id == 5 }) {
+              item.isExpanded.toggle()
+              item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
+              dataSource.update([item])
+            }
+          } label: {
+            Label("Update ID:5", systemImage: "pencil")
+          }
+
+          Button(role: .destructive) {
+            dataSource.remove(id: 10)
+          } label: {
+            Label("Remove ID:10", systemImage: "trash")
+          }
+
+          Divider()
+
+          Button {
+            nextPrependId = -1
+            nextAppendId = 5
+            let newItems = generateSampleMessages(count: 5, startId: 0)
+            dataSource.setItems(newItems)
+          } label: {
+            Label("Reset (5 items)", systemImage: "arrow.counterclockwise")
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
       }
     }
   }

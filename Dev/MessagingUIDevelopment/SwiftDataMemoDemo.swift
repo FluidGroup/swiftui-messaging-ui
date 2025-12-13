@@ -41,6 +41,7 @@ struct MemoItem: Identifiable, Equatable {
 struct MemoBubbleView: View {
 
   let item: MemoItem
+  var onDelete: (() -> Void)?
 
   private static let dateFormatter: DateFormatter = {
     let formatter = DateFormatter()
@@ -70,6 +71,15 @@ struct MemoBubbleView: View {
     }
     .padding(.horizontal, 16)
     .padding(.vertical, 4)
+    .contextMenu {
+      if let onDelete {
+        Button(role: .destructive) {
+          onDelete()
+        } label: {
+          Label("Delete", systemImage: "trash")
+        }
+      }
+    }
   }
 }
 
@@ -82,7 +92,7 @@ final class MemoStore {
   private(set) var dataSource = ListDataSource<MemoItem>()
   private(set) var hasMore = true
 
-  /// 現在ロード済みの件数（ページネーション用）
+  /// Current loaded item count for pagination
   private var loadedCount = 0
   private let pageSize = 10
 
@@ -90,27 +100,27 @@ final class MemoStore {
     self.modelContext = modelContext
   }
 
-  /// 初期ロード: 最新10件を取得
+  /// Initial load: fetch latest 10 items
   func loadInitial() {
     loadedCount = pageSize
     refreshFromDatabase()
   }
 
-  /// 過去のメモをロード: 取得件数を増やして再フェッチ
+  /// Load older memos: increase fetch count and re-fetch
   func loadMore() {
     guard hasMore else { return }
     loadedCount += pageSize
     refreshFromDatabase()
   }
 
-  /// SwiftDataから取得してapplyDiffで差分適用
+  /// Fetch from SwiftData and apply diff
   private func refreshFromDatabase() {
-    // 全件数を取得してoffsetを計算
+    // Get total count to calculate offset
     let totalCount = (try? modelContext.fetchCount(FetchDescriptor<Memo>())) ?? 0
     let offset = max(0, totalCount - loadedCount)
 
     var descriptor = FetchDescriptor<Memo>(
-      sortBy: [SortDescriptor(\.createdAt, order: .forward)]  // 古い→新しい順
+      sortBy: [SortDescriptor(\.createdAt, order: .forward)]  // oldest to newest
     )
     descriptor.fetchOffset = offset
     descriptor.fetchLimit = loadedCount
@@ -118,20 +128,31 @@ final class MemoStore {
     let memos = (try? modelContext.fetch(descriptor)) ?? []
     let items = memos.map(MemoItem.init)
 
-    // applyDiffで自動的に差分を検出・適用
+    // Automatically detect and apply diff
     dataSource.applyDiff(from: items)
 
     hasMore = offset > 0
   }
 
-  /// 新規メモ追加後にリフレッシュ
+  /// Add new memo and refresh
   func addMemo(text: String) {
     let memo = Memo(text: text)
     modelContext.insert(memo)
     try? modelContext.save()
 
-    // 追加後は件数を1つ増やしてリフレッシュ
+    // Increment count and refresh after adding
     loadedCount += 1
+    refreshFromDatabase()
+  }
+
+  /// Delete memo by ID and refresh
+  func deleteMemo(id: PersistentIdentifier) {
+    guard let memo = modelContext.model(for: id) as? Memo else { return }
+    modelContext.delete(memo)
+    try? modelContext.save()
+
+    // Decrement count and refresh after deleting
+    loadedCount = max(0, loadedCount - 1)
     refreshFromDatabase()
   }
 
@@ -161,7 +182,7 @@ final class MemoStore {
     }
     try? modelContext.save()
 
-    // 追加した分だけ件数を増やしてリフレッシュ
+    // Increment count by added amount and refresh
     loadedCount += count
     refreshFromDatabase()
   }
@@ -228,7 +249,9 @@ struct SwiftDataMemoDemo: View {
             store.loadMore()
           },
           cellBuilder: { item in
-            MemoBubbleView(item: item)
+            MemoBubbleView(item: item) {
+              store.deleteMemo(id: item.id)
+            }
           }
         )
       } else {
