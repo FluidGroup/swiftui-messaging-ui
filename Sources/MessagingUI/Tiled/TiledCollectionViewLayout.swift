@@ -22,7 +22,13 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// If nil is returned, estimatedHeight will be used.
   public var itemSizeProvider: ((_ index: Int, _ width: CGFloat) -> CGSize?)?
 
-  // MARK: - Private Properties
+  // MARK: - Constants
+
+  private let virtualContentHeight: CGFloat = 100_000_000
+  private let anchorY: CGFloat = 50_000_000
+  private let estimatedHeight: CGFloat = 100
+
+  // MARK: - Private State
 
   private var attributesCache: [IndexPath: UICollectionViewLayoutAttributes] = [:]
   private var itemYPositions: Deque<CGFloat> = []
@@ -30,8 +36,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   private var lastPreparedBoundsSize: CGSize = .zero
   private var needsFullAttributesRebuild: Bool = true
 
-  private let virtualContentHeight: CGFloat = 100_000_000
-  private let anchorY: CGFloat = 50_000_000
+  // MARK: - UICollectionViewLayout Overrides
 
   public override var collectionViewContentSize: CGSize {
     CGSize(
@@ -66,12 +71,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
         let indexPath = IndexPath(item: index, section: 0)
         let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
-        attributes.frame = CGRect(
-          x: 0,
-          y: itemYPositions[index],
-          width: boundsSize.width,
-          height: itemHeights[index]
-        )
+        attributes.frame = makeFrame(at: index, boundsWidth: boundsSize.width)
         attributesCache[indexPath] = attributes
       }
 
@@ -83,21 +83,11 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
         let indexPath = IndexPath(item: index, section: 0)
         if let attributes = attributesCache[indexPath] {
-          attributes.frame = CGRect(
-            x: 0,
-            y: itemYPositions[index],
-            width: boundsSize.width,
-            height: itemHeights[index]
-          )
+          attributes.frame = makeFrame(at: index, boundsWidth: boundsSize.width)
         } else {
           // New item added, create attributes
           let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
-          attributes.frame = CGRect(
-            x: 0,
-            y: itemYPositions[index],
-            width: boundsSize.width,
-            height: itemHeights[index]
-          )
+          attributes.frame = makeFrame(at: index, boundsWidth: boundsSize.width)
           attributesCache[indexPath] = attributes
         }
       }
@@ -145,7 +135,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     return context
   }
 
-  private let estimatedHeight: CGFloat = 100
+  // MARK: - Public Item Management API
 
   public func appendItems(count: Int, startingIndex: Int) {
     let width = collectionView?.bounds.width ?? 0
@@ -210,27 +200,6 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     needsFullAttributesRebuild = true
   }
 
-  private func contentBounds() -> (top: CGFloat, bottom: CGFloat)? {
-    guard let firstY = itemYPositions.first,
-          let lastY = itemYPositions.last,
-          let lastHeight = itemHeights.last else { return nil }
-    return (firstY, lastY + lastHeight)
-  }
-
-  private func calculateContentInset() -> UIEdgeInsets {
-    guard let bounds = contentBounds() else { return .zero }
-
-    let topInset = bounds.top
-    let bottomInset = virtualContentHeight - bounds.bottom
-
-    return UIEdgeInsets(
-      top: -topInset,
-      left: 0,
-      bottom: -bottomInset,
-      right: 0
-    )
-  }
-
   public func removeItems(at indices: [Int]) {
     guard !indices.isEmpty else { return }
 
@@ -262,7 +231,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     needsFullAttributesRebuild = true
   }
 
-  public func updateItemHeight(at index: Int, newHeight: CGFloat) {
+  private func updateItemHeight(at index: Int, newHeight: CGFloat) {
     guard index >= 0, index < itemHeights.count else { return }
 
     let oldHeight = itemHeights[index]
@@ -274,5 +243,37 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     for i in (index + 1)..<itemYPositions.count {
       itemYPositions[i] += heightDiff
     }
+  }
+
+  // MARK: - Private Helpers
+
+  private func makeFrame(at index: Int, boundsWidth: CGFloat) -> CGRect {
+    CGRect(
+      x: 0,
+      y: itemYPositions[index],
+      width: boundsWidth,
+      height: itemHeights[index]
+    )
+  }
+
+  private func contentBounds() -> (top: CGFloat, bottom: CGFloat)? {
+    guard let firstY = itemYPositions.first,
+          let lastY = itemYPositions.last,
+          let lastHeight = itemHeights.last else { return nil }
+    return (firstY, lastY + lastHeight)
+  }
+
+  private func calculateContentInset() -> UIEdgeInsets {
+    guard let bounds = contentBounds() else { return .zero }
+
+    let topInset = bounds.top
+    let bottomInset = virtualContentHeight - bounds.bottom
+
+    return UIEdgeInsets(
+      top: -topInset,
+      left: 0,
+      bottom: -bottomInset,
+      right: 0
+    )
   }
 }
