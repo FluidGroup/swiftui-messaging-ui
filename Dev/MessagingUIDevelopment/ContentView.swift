@@ -6,17 +6,23 @@
 //
 
 import SwiftUI
+import MessagingUI
+
+enum DemoDestination: Hashable {
+  case tiledView
+  case applyDiffDemo
+  case swiftDataMemo
+}
 
 struct ContentView: View {
+
+  @Namespace private var namespace
+
   var body: some View {
     NavigationStack {
       List {
         Section("Demos") {
-          NavigationLink {
-            BookTiledView()
-              .navigationTitle("TiledView")
-              .navigationBarTitleDisplayMode(.inline)
-          } label: {
+          NavigationLink(value: DemoDestination.tiledView) {
             Label {
               VStack(alignment: .leading) {
                 Text("TiledView")
@@ -29,11 +35,7 @@ struct ContentView: View {
             }
           }
 
-          NavigationLink {
-            BookApplyDiffDemo()
-              .navigationTitle("applyDiff Demo")
-              .navigationBarTitleDisplayMode(.inline)
-          } label: {
+          NavigationLink(value: DemoDestination.applyDiffDemo) {
             Label {
               VStack(alignment: .leading) {
                 Text("applyDiff Demo")
@@ -48,10 +50,7 @@ struct ContentView: View {
         }
 
         Section("SwiftData Integration") {
-          NavigationLink {
-            SwiftDataMemoDemo()
-              .navigationBarTitleDisplayMode(.inline)
-          } label: {
+          NavigationLink(value: DemoDestination.swiftDataMemo) {
             Label {
               VStack(alignment: .leading) {
                 Text("Memo Stream")
@@ -66,6 +65,31 @@ struct ContentView: View {
         }
       }
       .navigationTitle("MessagingUI")
+      .navigationDestination(for: DemoDestination.self) { destination in
+        switch destination {
+        case .tiledView:
+          BookTiledView(namespace: namespace)
+            .navigationTitle("TiledView")
+            .navigationBarTitleDisplayMode(.inline)
+        case .applyDiffDemo:
+          BookApplyDiffDemo()
+            .navigationTitle("applyDiff Demo")
+            .navigationBarTitleDisplayMode(.inline)
+        case .swiftDataMemo:
+          SwiftDataMemoDemo()
+            .navigationBarTitleDisplayMode(.inline)
+        }
+      }
+      .navigationDestination(for: ChatMessage.self) { message in
+        if #available(iOS 18.0, *) {
+          Text("Detail View for Message ID: \(message.id)")
+            .navigationTransition(
+              .zoom(sourceID: message.id, in: namespace)
+            )
+        } else {
+          Text("Detail View for Message ID: \(message.id)")
+        }
+      }
     }
   }
 }

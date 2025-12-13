@@ -174,6 +174,7 @@ struct SwiftDataMemoDemo: View {
   @Environment(\.modelContext) private var modelContext
   @State private var store: MemoStore?
   @State private var inputText = ""
+  @State private var scrollPosition = TiledScrollPosition()
 
   var body: some View {
     VStack(spacing: 0) {
@@ -222,6 +223,7 @@ struct SwiftDataMemoDemo: View {
       if let store {
         TiledView(
           dataSource: store.dataSource,
+          scrollPosition: $scrollPosition,
           onPrepend: {
             store.loadMore()
           },

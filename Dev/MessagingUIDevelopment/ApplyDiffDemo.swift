@@ -28,6 +28,8 @@ struct BookApplyDiffDemo: View {
   /// Previous change counter to detect new changes
   @State private var previousChangeCounter = 0
 
+  @State private var scrollPosition = TiledScrollPosition()
+
   var body: some View {
     VStack(spacing: 0) {
       // Control Panel
@@ -181,6 +183,7 @@ struct BookApplyDiffDemo: View {
       // List View
       TiledView(
         dataSource: dataSource,
+        scrollPosition: $scrollPosition,
         cellBuilder: { message in
           ChatBubbleView(message: message)
         }

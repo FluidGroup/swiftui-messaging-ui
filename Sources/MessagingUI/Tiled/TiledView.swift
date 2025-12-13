@@ -74,6 +74,9 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   private let prependThreshold: CGFloat = 100
   private var prependTask: Task<Void, Never>?
 
+  /// Scroll position tracking
+  private var lastAppliedScrollVersion: UInt = 0
+
   public typealias DataSource = ListDataSource<Item>
 
   public let onPrepend: (@MainActor () async throws -> Void)?
@@ -250,6 +253,32 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       isPrependTriggered = false
     }
   }
+
+  // MARK: - Scroll Position
+
+  func applyScrollPosition(_ position: TiledScrollPosition) {
+    guard position.version != lastAppliedScrollVersion else { return }
+    lastAppliedScrollVersion = position.version
+
+    guard let edge = position.edge else { return }
+
+    switch edge {
+    case .top:
+      guard items.count > 0 else { return }
+      collectionView.scrollToItem(
+        at: IndexPath(item: 0, section: 0),
+        at: .top,
+        animated: position.animated
+      )
+    case .bottom:
+      guard items.count > 0 else { return }
+      collectionView.scrollToItem(
+        at: IndexPath(item: items.count - 1, section: 0),
+        at: .bottom,
+        animated: position.animated
+      )
+    }
+  }
 }
 
 // MARK: - TiledView
@@ -260,14 +289,17 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
 
   let dataSource: ListDataSource<Item>
   let cellBuilder: (Item) -> Cell
-  let onPrepend: (() async throws -> Void)?
+  let onPrepend: (@MainActor () async throws -> Void)?
+  @Binding var scrollPosition: TiledScrollPosition
 
   public init(
     dataSource: ListDataSource<Item>,
-    onPrepend: (() async throws -> Void)? = nil,
+    scrollPosition: Binding<TiledScrollPosition>,
+    onPrepend: (@MainActor () async throws -> Void)? = nil,
     @ViewBuilder cellBuilder: @escaping (Item) -> Cell
   ) {
     self.dataSource = dataSource
+    self._scrollPosition = scrollPosition
     self.onPrepend = onPrepend
     self.cellBuilder = cellBuilder
   }
@@ -280,5 +312,6 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
 
   public func updateUIView(_ uiView: _TiledView<Item, Cell>, context: Context) {
     uiView.applyDataSource(dataSource)
+    uiView.applyScrollPosition(scrollPosition)
   }
 }

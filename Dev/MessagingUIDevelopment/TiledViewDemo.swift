@@ -118,8 +118,12 @@ struct BookTiledView: View {
   @State private var dataSource: ListDataSource<ChatMessage>
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
+  @State private var scrollPosition = TiledScrollPosition()
 
-  init() {
+  let namespace: Namespace.ID
+
+  init(namespace: Namespace.ID) {
+    self.namespace = namespace
     _dataSource = State(initialValue: ListDataSource())
   }
 
@@ -133,16 +137,52 @@ struct BookTiledView: View {
       .padding()
       .background(Color(.systemBackground))
 
-      TiledView(
-        dataSource: dataSource,
-        cellBuilder: { message in
-          ChatBubbleView(message: message)
-        }
-      )
+      if #available(iOS 18.0, *) {
+        TiledView(
+          dataSource: dataSource,
+          scrollPosition: $scrollPosition,
+          cellBuilder: { message in
+            NavigationLink(value: message) {
+              ChatBubbleView(message: message)
+                .matchedTransitionSource(
+                  id: message.id,
+                  in: namespace
+                )
+            }
+          }
+        )
+      } else {
+        TiledView(
+          dataSource: dataSource,
+          scrollPosition: $scrollPosition,
+          cellBuilder: { message in
+            ChatBubbleView(message: message)
+          }
+        )
+      }
     }
   }
 }
 
 #Preview("TiledView (UICollectionView)") {
-  BookTiledView()
+  struct PreviewWrapper: View {
+    @Namespace private var namespace
+
+    var body: some View {
+      NavigationStack {
+        BookTiledView(namespace: namespace)
+          .navigationDestination(for: ChatMessage.self) { message in
+            if #available(iOS 18.0, *) {
+              Text("Detail View for Message ID: \(message.id)")
+                .navigationTransition(
+                  .zoom(sourceID: message.id, in: namespace)
+                )
+            } else {
+              Text("Detail View for Message ID: \(message.id)")
+            }
+          }
+      }
+    }
+  }
+  return PreviewWrapper()
 }

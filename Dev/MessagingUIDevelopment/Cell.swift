@@ -41,6 +41,12 @@ struct ChatBubbleView: View {
   var body: some View {
     HStack {
       VStack(alignment: .leading, spacing: 4) {
+        Button("Expand") {
+          withAnimation(.smooth) {
+            isLocalExpanded.toggle()
+          }
+        }
+        .font(.caption2)
         HStack {
           Text("ID: \(message.id)")
             .font(.caption)
@@ -96,12 +102,7 @@ struct ChatBubbleView: View {
 
       Spacer(minLength: 44)
     }
-    .contentShape(Rectangle())
-    .onTapGesture {
-      withAnimation(.smooth) {        
-        isLocalExpanded.toggle()
-      }
-    }
+    .contentShape(Rectangle())   
     .padding(.horizontal, 16)
     .padding(.vertical, 8)
     .background(Color.init(white: 0.1, opacity: 0.5))
