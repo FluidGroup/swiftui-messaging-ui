@@ -98,6 +98,16 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Scroll geometry change callback
   var onScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
 
+  /// Additional content inset for keyboard, headers, footers, etc.
+  var additionalContentInset: UIEdgeInsets = .zero {
+    didSet {
+      guard additionalContentInset != oldValue else { return }
+      tiledLayout.additionalContentInset = additionalContentInset
+      tiledLayout.invalidateLayout()
+      collectionView.verticalScrollIndicatorInsets.bottom = additionalContentInset.bottom
+    }
+  }
+
   /// Per-item cell state storage
   private var stateMap: [Item.ID: CellState] = [:]
 
@@ -531,6 +541,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
   let cellStates: [Item.ID: CellState]?
   let onPrepend: (@MainActor () async throws -> Void)?
   var onScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
+  var additionalContentInset: UIEdgeInsets = .zero
   @Binding var scrollPosition: TiledScrollPosition
 
   public init(
@@ -557,6 +568,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
   public func updateUIView(_ uiView: _TiledView<Item, Cell>, context: Context) {
     uiView.autoScrollsToBottomOnAppend = scrollPosition.autoScrollsToBottomOnAppend
     uiView.onScrollGeometryChange = onScrollGeometryChange
+    uiView.additionalContentInset = additionalContentInset
     uiView.applyDataSource(dataSource)
     uiView.applyScrollPosition(scrollPosition)
 
@@ -572,6 +584,22 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
     _ action: @escaping (TiledScrollGeometry) -> Void
   ) -> Self {
     self.onScrollGeometryChange = action
+    return self
+  }
+
+  /// Sets additional content inset for keyboard, headers, footers, etc.
+  ///
+  /// Use this to add extra scrollable space at the edges of the content.
+  /// For keyboard handling, set the bottom inset to the keyboard height.
+  ///
+  /// ```swift
+  /// TiledView(...)
+  ///   .additionalContentInset(UIEdgeInsets(top: 0, left: 0, bottom: keyboardHeight, right: 0))
+  /// ```
+  public consuming func additionalContentInset(
+    _ inset: UIEdgeInsets
+  ) -> Self {
+    self.additionalContentInset = inset
     return self
   }
 }
