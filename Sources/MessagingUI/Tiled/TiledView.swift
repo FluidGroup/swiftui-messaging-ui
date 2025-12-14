@@ -92,6 +92,12 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
 
+  /// Auto-scroll to bottom on append
+  var autoScrollsToBottomOnAppend: Bool = false
+
+  /// Scroll geometry change callback
+  var onScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
+
   /// Per-item cell state storage
   private var stateMap: [Item.ID: CellState] = [:]
 
@@ -207,6 +213,10 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
       collectionView.reloadData()
 
+      if autoScrollsToBottomOnAppend {
+        scrollToBottom(animated: true)
+      }
+
     case .insert(let index, let ids):
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
       for (offset, item) in newItems.enumerated() {
@@ -283,6 +293,17 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
     } else {
       isPrependTriggered = false
     }
+
+    // Notify scroll geometry change
+    if let onScrollGeometryChange {
+      let geometry = TiledScrollGeometry(
+        contentOffset: scrollView.contentOffset,
+        contentSize: scrollView.contentSize,
+        visibleSize: scrollView.bounds.size,
+        contentInset: scrollView.adjustedContentInset
+      )
+      onScrollGeometryChange(geometry)
+    }
   }
 
   // MARK: - Scroll Position
@@ -311,6 +332,18 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
     collectionView.scrollRectToVisible(targetRect, animated: position.animated)
     collectionView.flashScrollIndicators()
+  }
+
+  private func scrollToBottom(animated: Bool) {
+    collectionView.layoutIfNeeded()
+    guard items.count > 0 else { return }
+
+    let inset = collectionView.adjustedContentInset
+    let contentBottom = collectionView.contentSize.height + inset.bottom
+    let boundsWidth = collectionView.bounds.width
+    let targetRect = CGRect(x: 0, y: contentBottom - 1, width: boundsWidth, height: 1)
+
+    collectionView.scrollRectToVisible(targetRect, animated: animated)
   }
 
   // MARK: - Cell State Management
@@ -364,6 +397,131 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
 // MARK: - TiledView
 
+/// A high-performance SwiftUI list view built on UICollectionView,
+/// designed for chat/messaging applications with bidirectional infinite scrolling.
+///
+/// ## Key Features
+///
+/// - **Virtual Content Layout**: Uses a 100M point virtual content height with anchor point,
+///   enabling smooth prepend/append operations without content offset jumps.
+/// - **Self-Sizing Cells**: Automatic cell height calculation using UIHostingConfiguration.
+/// - **Efficient Updates**: Change-based updates (prepend, append, insert, remove, update)
+///   without full reload.
+/// - **Cell State Management**: Optional per-cell state storage that persists across reuse.
+///
+/// ## Architecture
+///
+/// ```
+/// TiledView (SwiftUI)
+///     └── _TiledView (UIView)
+///             ├── UICollectionView
+///             │       └── TiledViewCell (UIHostingConfiguration)
+///             └── TiledCollectionViewLayout (Custom Layout)
+/// ```
+///
+/// ## Basic Usage
+///
+/// ```swift
+/// struct ChatView: View {
+///   @State private var dataSource = ListDataSource<Message>()
+///   @State private var scrollPosition = TiledScrollPosition()
+///
+///   var body: some View {
+///     TiledView(
+///       dataSource: dataSource,
+///       scrollPosition: $scrollPosition
+///     ) { message, state in
+///       MessageBubbleView(message: message)
+///     }
+///     .onAppear {
+///       dataSource.setItems(initialMessages)
+///     }
+///   }
+/// }
+/// ```
+///
+/// ## ListDataSource
+///
+/// Use ``ListDataSource`` to manage items. It tracks changes for efficient updates:
+///
+/// ```swift
+/// dataSource.setItems([...])        // Replace all items
+/// dataSource.prepend([...])         // Add to beginning (older messages)
+/// dataSource.append([...])          // Add to end (newer messages)
+/// dataSource.insert([...], at: 5)   // Insert at specific index
+/// dataSource.update([...])          // Update existing items
+/// dataSource.remove(ids: [...])     // Remove by IDs
+/// dataSource.applyDiff(from: [...]) // Auto-detect changes
+/// ```
+///
+/// ## TiledScrollPosition
+///
+/// Control scroll position programmatically with ``TiledScrollPosition``:
+///
+/// ```swift
+/// @State private var scrollPosition = TiledScrollPosition()
+///
+/// // Scroll to edges
+/// scrollPosition.scrollTo(edge: .top)
+/// scrollPosition.scrollTo(edge: .bottom, animated: true)
+///
+/// // Auto-scroll on append (for chat "stick to bottom" behavior)
+/// scrollPosition.autoScrollsToBottomOnAppend = true
+/// ```
+///
+/// ## Cell State (Optional)
+///
+/// Store per-cell state that persists across cell reuse using ``CellState`` and ``CustomStateKey``:
+///
+/// ```swift
+/// // 1. Define a state key
+/// enum IsExpandedKey: CustomStateKey {
+///   typealias Value = Bool
+///   static var defaultValue: Bool { false }
+/// }
+///
+/// // 2. Use state in cell builder
+/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { item, state in
+///   let isExpanded = state[IsExpandedKey.self]
+///   MyCell(item: item, isExpanded: isExpanded)
+/// }
+/// ```
+///
+/// ## Scroll Geometry
+///
+/// Monitor scroll position for "scroll to bottom" buttons using ``TiledScrollGeometry``:
+///
+/// ```swift
+/// TiledView(...)
+///   .onScrollGeometryChange { geometry in
+///     let isNearBottom = geometry.pointsFromBottom < 100
+///   }
+/// ```
+///
+/// ## Infinite Scrolling
+///
+/// Use `onPrepend` to load older content when scrolling near top:
+///
+/// ```swift
+/// TiledView(
+///   dataSource: dataSource,
+///   scrollPosition: $scrollPosition,
+///   onPrepend: {
+///     let olderMessages = await api.fetchOlderMessages()
+///     dataSource.prepend(olderMessages)
+///   }
+/// ) { ... }
+/// ```
+///
+/// ## Virtual Content Layout Details
+///
+/// The layout uses a virtual content height of 100,000,000 points with items
+/// anchored at the center (50,000,000). This provides ~50M points of scroll
+/// space in each direction, eliminating content offset adjustments during
+/// prepend/append operations.
+///
+/// Content bounds are exposed via negative contentInset values, which mask
+/// the unused virtual space above/below the actual content.
 public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepresentable {
 
   public typealias UIViewType = _TiledView<Item, Cell>
@@ -372,6 +530,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
   let cellBuilder: (Item, CellState) -> Cell
   let cellStates: [Item.ID: CellState]?
   let onPrepend: (@MainActor () async throws -> Void)?
+  var onScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   @Binding var scrollPosition: TiledScrollPosition
 
   public init(
@@ -391,10 +550,13 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
   public func makeUIView(context: Context) -> _TiledView<Item, Cell> {
     let view = _TiledView(cellBuilder: cellBuilder, onPrepend: onPrepend)
     view.applyDataSource(dataSource)
+    view.onScrollGeometryChange = onScrollGeometryChange
     return view
   }
 
   public func updateUIView(_ uiView: _TiledView<Item, Cell>, context: Context) {
+    uiView.autoScrollsToBottomOnAppend = scrollPosition.autoScrollsToBottomOnAppend
+    uiView.onScrollGeometryChange = onScrollGeometryChange
     uiView.applyDataSource(dataSource)
     uiView.applyScrollPosition(scrollPosition)
 
@@ -404,5 +566,12 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
         uiView._setState(cellState: state, for: id)
       }
     }
+  }
+
+  public consuming func onScrollGeometryChange(
+    _ action: @escaping (TiledScrollGeometry) -> Void
+  ) -> Self {
+    self.onScrollGeometryChange = action
+    return self
   }
 }
