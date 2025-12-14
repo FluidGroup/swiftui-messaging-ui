@@ -18,6 +18,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// If nil is returned, estimatedHeight will be used.
   public var itemSizeProvider: ((_ index: Int, _ width: CGFloat) -> CGSize?)?
 
+  /// Additional content inset to apply on top of the calculated inset.
+  /// Use this to add extra space for keyboard, headers, footers, etc.
+  public var additionalContentInset: UIEdgeInsets = .zero
+
   // MARK: - Constants
 
   private let virtualContentHeight: CGFloat = 100_000_000
@@ -305,16 +309,16 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   }
 
   private func calculateContentInset() -> UIEdgeInsets {
-    guard let bounds = contentBounds() else { return .zero }
+    guard let bounds = contentBounds() else { return additionalContentInset }
 
     let topInset = bounds.top
     let bottomInset = virtualContentHeight - bounds.bottom
 
     return UIEdgeInsets(
-      top: -topInset,
-      left: 0,
-      bottom: -bottomInset,
-      right: 0
+      top: -topInset + additionalContentInset.top,
+      left: additionalContentInset.left,
+      bottom: -bottomInset + additionalContentInset.bottom,
+      right: additionalContentInset.right
     )
   }
 }

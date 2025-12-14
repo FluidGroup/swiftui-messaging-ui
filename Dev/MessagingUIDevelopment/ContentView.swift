@@ -11,6 +11,7 @@ import MessagingUI
 enum DemoDestination: Hashable {
   case tiledView
   case iMessage
+  case iMessageSwiftData
   case applyDiffDemo
   case swiftDataMemo
 }
@@ -64,6 +65,19 @@ struct ContentView: View {
         }
 
         Section("SwiftData Integration") {
+          NavigationLink(value: DemoDestination.iMessageSwiftData) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("iMessage + SwiftData")
+                Text("Persistent chat with status")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "message.badge.checkmark.fill")
+            }
+          }
+
           NavigationLink(value: DemoDestination.swiftDataMemo) {
             Label {
               VStack(alignment: .leading) {
@@ -87,6 +101,8 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
         case .iMessage:
           iMessageDemo()
+        case .iMessageSwiftData:
+          iMessageSwiftDataDemo()
         case .applyDiffDemo:
           BookApplyDiffDemo()
             .navigationTitle("applyDiff Demo")

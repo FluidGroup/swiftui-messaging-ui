@@ -1,0 +1,478 @@
+//
+//  iMessageSwiftDataDemo.swift
+//  MessagingUIDevelopment
+//
+//  Created by Hiroshi Kimura on 2025/12/14.
+//
+
+import SwiftUI
+import SwiftData
+import MessagingUI
+
+// MARK: - SwiftData Model
+
+@Model
+final class ChatMessageModel {
+  var text: String
+  var isSentByMe: Bool
+  var timestamp: Date
+  var status: MessageStatus
+
+  enum MessageStatus: Int, Codable {
+    case sending = 0
+    case sent = 1
+    case delivered = 2
+    case read = 3
+    case failed = 4
+  }
+
+  init(
+    text: String,
+    isSentByMe: Bool,
+    timestamp: Date = .now,
+    status: MessageStatus = .sending
+  ) {
+    self.text = text
+    self.isSentByMe = isSentByMe
+    self.timestamp = timestamp
+    self.status = status
+  }
+}
+
+// MARK: - ChatMessageItem (Identifiable & Equatable wrapper)
+
+struct ChatMessageItem: Identifiable, Equatable {
+  let id: PersistentIdentifier
+  let text: String
+  let isSentByMe: Bool
+  let timestamp: Date
+  let status: ChatMessageModel.MessageStatus
+
+  init(model: ChatMessageModel) {
+    self.id = model.persistentModelID
+    self.text = model.text
+    self.isSentByMe = model.isSentByMe
+    self.timestamp = model.timestamp
+    self.status = model.status
+  }
+}
+
+// MARK: - iMessage Bubble View
+
+struct iMessageBubbleView: View {
+
+  let message: ChatMessageItem
+
+  private static let timeFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.timeStyle = .short
+    return formatter
+  }()
+
+  var body: some View {
+    HStack(alignment: .bottom, spacing: 4) {
+      if message.isSentByMe {
+        Spacer(minLength: 60)
+      }
+
+      VStack(alignment: message.isSentByMe ? .trailing : .leading, spacing: 2) {
+        Text(message.text)
+          .font(.body)
+          .foregroundStyle(message.isSentByMe ? .white : .primary)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 8)
+          .background(
+            RoundedRectangle(cornerRadius: 18)
+              .fill(bubbleColor)
+          )
+
+        HStack(spacing: 4) {
+          Text(Self.timeFormatter.string(from: message.timestamp))
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+          if message.isSentByMe {
+            statusIcon
+          }
+        }
+      }
+
+      if !message.isSentByMe {
+        Spacer(minLength: 60)
+      }
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 2)
+  }
+
+  private var bubbleColor: Color {
+    if message.isSentByMe {
+      return message.status == .failed ? .red : .blue
+    } else {
+      return Color(.systemGray5)
+    }
+  }
+
+  @ViewBuilder
+  private var statusIcon: some View {
+    switch message.status {
+    case .sending:
+      ProgressView()
+        .scaleEffect(0.5)
+        .frame(width: 12, height: 12)
+    case .sent:
+      Image(systemName: "checkmark")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    case .delivered:
+      Image(systemName: "checkmark")
+        .font(.caption2)
+        .foregroundStyle(.blue)
+    case .read:
+      Image(systemName: "checkmark.circle.fill")
+        .font(.caption2)
+        .foregroundStyle(.blue)
+    case .failed:
+      Image(systemName: "exclamationmark.circle.fill")
+        .font(.caption2)
+        .foregroundStyle(.red)
+    }
+  }
+}
+
+// MARK: - ChatStore
+
+@Observable
+final class ChatStore {
+
+  private let modelContext: ModelContext
+  private(set) var dataSource = ListDataSource<ChatMessageItem>()
+  private(set) var hasMore = true
+
+  private var loadedCount = 0
+  private let pageSize = 20
+
+  init(modelContext: ModelContext) {
+    self.modelContext = modelContext
+  }
+
+  func loadInitial() {
+    loadedCount = pageSize
+    refreshFromDatabase()
+  }
+
+  func loadMore() {
+    guard hasMore else { return }
+    loadedCount += pageSize
+    refreshFromDatabase()
+  }
+
+  private func refreshFromDatabase() {
+    let totalCount = (try? modelContext.fetchCount(FetchDescriptor<ChatMessageModel>())) ?? 0
+    let offset = max(0, totalCount - loadedCount)
+
+    var descriptor = FetchDescriptor<ChatMessageModel>(
+      sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+    )
+    descriptor.fetchOffset = offset
+    descriptor.fetchLimit = loadedCount
+
+    let models = (try? modelContext.fetch(descriptor)) ?? []
+    let items = models.map(ChatMessageItem.init)
+
+    dataSource.applyDiff(from: items)
+    hasMore = offset > 0
+  }
+
+  func sendMessage(text: String) {
+    let message = ChatMessageModel(
+      text: text,
+      isSentByMe: true,
+      status: .sending
+    )
+    modelContext.insert(message)
+    try? modelContext.save()
+
+    loadedCount += 1
+    refreshFromDatabase()
+
+    // Simulate sending delay
+    let messageID = message.persistentModelID
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1))
+      updateMessageStatus(id: messageID, status: .sent)
+
+      try? await Task.sleep(for: .seconds(0.5))
+      updateMessageStatus(id: messageID, status: .delivered)
+    }
+  }
+
+  func receiveMessage(text: String) {
+    let message = ChatMessageModel(
+      text: text,
+      isSentByMe: false,
+      status: .delivered
+    )
+    modelContext.insert(message)
+    try? modelContext.save()
+
+    loadedCount += 1
+    refreshFromDatabase()
+  }
+
+  private func updateMessageStatus(id: PersistentIdentifier, status: ChatMessageModel.MessageStatus) {
+    guard let message = modelContext.model(for: id) as? ChatMessageModel else { return }
+    message.status = status
+    try? modelContext.save()
+    refreshFromDatabase()
+  }
+
+  func deleteMessage(id: PersistentIdentifier) {
+    guard let message = modelContext.model(for: id) as? ChatMessageModel else { return }
+    modelContext.delete(message)
+    try? modelContext.save()
+
+    loadedCount = max(0, loadedCount - 1)
+    refreshFromDatabase()
+  }
+
+  // MARK: - Sample Data Generation
+
+  private static let incomingMessages = [
+    "Hey! How's it going?",
+    "Nice! Any plans for tonight?",
+    "Want to grab dinner?",
+    "How about that new Italian place?",
+    "Cool, I'll make a reservation for 7pm",
+    "Can't wait!",
+    "Did you see the news today?",
+    "That sounds great!",
+    "Let me know when you're free",
+    "Sure thing!",
+  ]
+
+  private static let outgoingReplies = [
+    "Pretty good! Just finished work",
+    "Not really, maybe watch a movie",
+    "Sure! Where?",
+    "Sounds great",
+    "Perfect, see you there!",
+    "Me neither!",
+    "Yeah, crazy stuff",
+    "Thanks!",
+    "Will do",
+    "OK",
+  ]
+
+  func simulateIncomingMessage() {
+    let text = Self.incomingMessages.randomElement() ?? "Hello!"
+    receiveMessage(text: text)
+  }
+
+  func generateConversation(count: Int) {
+    for i in 0..<count {
+      let isSentByMe = i % 2 == 1
+      let text: String
+      if isSentByMe {
+        text = Self.outgoingReplies[i % Self.outgoingReplies.count]
+      } else {
+        text = Self.incomingMessages[i % Self.incomingMessages.count]
+      }
+
+      let message = ChatMessageModel(
+        text: text,
+        isSentByMe: isSentByMe,
+        timestamp: Date().addingTimeInterval(Double(-count + i) * 60),
+        status: .delivered
+      )
+      modelContext.insert(message)
+    }
+    try? modelContext.save()
+
+    loadedCount += count
+    refreshFromDatabase()
+  }
+
+  func clearAll() {
+    try? modelContext.delete(model: ChatMessageModel.self)
+    try? modelContext.save()
+    loadedCount = 0
+    dataSource.setItems([])
+    hasMore = false
+  }
+}
+
+// MARK: - iMessageSwiftDataDemo
+
+struct iMessageSwiftDataDemo: View {
+
+  @Environment(\.modelContext) private var modelContext
+  @State private var store: ChatStore?
+  @State private var inputText = ""
+  @State private var scrollPosition = TiledScrollPosition()
+  @State private var scrollGeometry: TiledScrollGeometry?
+
+  private var isNearBottom: Bool {
+    guard let geometry = scrollGeometry else { return true }
+    return geometry.pointsFromBottom < 100
+  }
+
+  var body: some View {
+    VStack(spacing: 0) {
+      // Messages
+      if let store {
+        ZStack(alignment: .bottomTrailing) {
+          TiledView(
+            dataSource: store.dataSource,
+            scrollPosition: $scrollPosition,
+            onPrepend: {
+              store.loadMore()
+            }
+          ) { message, _ in
+            iMessageBubbleView(message: message)
+              .contextMenu {
+                Button(role: .destructive) {
+                  store.deleteMessage(id: message.id)
+                } label: {
+                  Label("Delete", systemImage: "trash")
+                }
+              }
+          }
+          .onScrollGeometryChange { geometry in
+            scrollGeometry = geometry
+          }
+
+          // Scroll to bottom button
+          if !isNearBottom {
+            Button {
+              scrollPosition.scrollTo(edge: .bottom, animated: true)
+            } label: {
+              Image(systemName: "arrow.down.circle.fill")
+                .font(.title)
+                .foregroundStyle(.blue)
+                .background(Circle().fill(.white))
+            }
+            .padding()
+            .transition(.scale.combined(with: .opacity))
+          }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isNearBottom)
+      } else {
+        Spacer()
+        ProgressView()
+        Spacer()
+      }
+
+      Divider()
+
+      // Input bar
+      HStack(spacing: 12) {
+        TextField("Message", text: $inputText)
+          .textFieldStyle(.roundedBorder)
+          .onSubmit {
+            sendMessage()
+          }
+
+        Button {
+          sendMessage()
+        } label: {
+          Image(systemName: "arrow.up.circle.fill")
+            .font(.title)
+            .foregroundStyle(inputText.isEmpty ? .gray : .blue)
+        }
+        .disabled(inputText.isEmpty)
+      }
+      .padding(.horizontal, 12)
+      .padding(.vertical, 8)
+      .background(.bar)
+    }
+    .navigationTitle("Messages")
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItemGroup(placement: .topBarTrailing) {
+        Menu {
+          Button {
+            store?.simulateIncomingMessage()
+          } label: {
+            Label("Receive Message", systemImage: "arrow.down.message")
+          }
+
+          Divider()
+
+          Button {
+            store?.generateConversation(count: 10)
+          } label: {
+            Label("Generate 10 Messages", systemImage: "text.bubble")
+          }
+
+          Button {
+            store?.generateConversation(count: 50)
+          } label: {
+            Label("Generate 50 Messages", systemImage: "text.bubble.fill")
+          }
+
+          Divider()
+
+          Button(role: .destructive) {
+            store?.clearAll()
+          } label: {
+            Label("Clear All", systemImage: "trash")
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+      }
+    }
+    .onAppear {
+      if store == nil {
+        store = ChatStore(modelContext: modelContext)
+        store?.loadInitial()
+        scrollPosition.autoScrollsToBottomOnAppend = true
+      }
+    }
+  }
+
+  private func sendMessage() {
+    guard !inputText.isEmpty else { return }
+    store?.sendMessage(text: inputText)
+    inputText = ""
+  }
+}
+
+// MARK: - Preview
+
+#Preview {
+  let config = ModelConfiguration(isStoredInMemoryOnly: true)
+  let container = try! ModelContainer(for: ChatMessageModel.self, configurations: config)
+
+  // Add sample conversation
+  let context = container.mainContext
+  let conversation: [(String, Bool)] = [
+    ("Hey! How's it going?", false),
+    ("Pretty good! Just finished work", true),
+    ("Nice! Any plans for tonight?", false),
+    ("Not really, maybe watch a movie", true),
+    ("Want to grab dinner?", false),
+    ("Sure! Where?", true),
+    ("How about that new Italian place?", false),
+    ("Sounds great", true),
+    ("Cool, I'll make a reservation for 7pm", false),
+    ("Perfect, see you there!", true),
+  ]
+
+  for (index, (text, isSentByMe)) in conversation.enumerated() {
+    let message = ChatMessageModel(
+      text: text,
+      isSentByMe: isSentByMe,
+      timestamp: Date().addingTimeInterval(Double(index - conversation.count) * 60),
+      status: .delivered
+    )
+    context.insert(message)
+  }
+  try? context.save()
+
+  return NavigationStack {
+    iMessageSwiftDataDemo()
+  }
+  .modelContainer(container)
+}
