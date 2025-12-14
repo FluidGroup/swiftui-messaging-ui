@@ -293,35 +293,24 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
     guard let edge = position.edge else { return }
 
-    let inset = collectionView.contentInset
-    let contentHeight = collectionView.contentSize.height
-    let boundsHeight = collectionView.bounds.height
+    // Derive content bounds from adjustedContentInset
+    // (adjustedContentInset includes contentInset + safe area + keyboard adjustments)
+    let inset = collectionView.adjustedContentInset
+    let contentTop = -inset.top
+    let contentBottom = collectionView.contentSize.height + inset.bottom
 
-    let targetOffset: CGPoint
+    let boundsWidth = collectionView.bounds.width
+
+    let targetRect: CGRect
     switch edge {
     case .top:
-      // Scroll to the top (considering negative top inset)
-      targetOffset = CGPoint(x: 0, y: -inset.top)
+      targetRect = CGRect(x: 0, y: contentTop, width: boundsWidth, height: 1)
     case .bottom:
-      // Scroll to the bottom
-      targetOffset = CGPoint(x: 0, y: contentHeight - boundsHeight + inset.bottom)
+      targetRect = CGRect(x: 0, y: contentBottom - 1, width: boundsWidth, height: 1)
     }
 
+    collectionView.scrollRectToVisible(targetRect, animated: position.animated)
     collectionView.flashScrollIndicators()
-    
-    #if false
-    if #available(iOS 18.0, *) {    
-      UIView.animate(.smooth) { 
-        collectionView.contentOffset.y = targetOffset.y
-        collectionView.collectionViewLayout.invalidateLayout()        
-      }
-    } else {
-      collectionView.setContentOffset(targetOffset, animated: position.animated)
-    }
-    #else
-    collectionView.setContentOffset(targetOffset, animated: position.animated)
-    #endif
-       
   }
 
   // MARK: - Cell State Management
