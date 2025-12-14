@@ -119,7 +119,9 @@ struct BookTiledView: View {
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
-  @State private var showingActionSheet = false
+
+  // TiledView options
+  @State private var cachesCellState = false
 
   let namespace: Namespace.ID
 
@@ -134,13 +136,10 @@ struct BookTiledView: View {
         TiledView(
           dataSource: dataSource,
           scrollPosition: $scrollPosition,
+          cachesCellState: cachesCellState,
           cellBuilder: { message in
             NavigationLink(value: message) {
-              ChatBubbleView(message: message)
-                .matchedTransitionSource(
-                  id: message.id,
-                  in: namespace
-                )
+              StatefulChatBubbleView(message: message, namespace: namespace)
             }
           }
         )
@@ -148,77 +147,149 @@ struct BookTiledView: View {
         TiledView(
           dataSource: dataSource,
           scrollPosition: $scrollPosition,
+          cachesCellState: cachesCellState,
           cellBuilder: { message in
-            ChatBubbleView(message: message)
+            StatefulChatBubbleView(message: message, namespace: nil)
           }
         )
       }
     }
     .safeAreaInset(edge: .bottom) {
-      HStack {
-        Text("\(dataSource.items.count) items")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        Spacer()
-        Text("v\(dataSource.changeCounter)")
-          .font(.caption2)
-          .foregroundStyle(.tertiary)
+      VStack(spacing: 0) {
+        Divider()
+        HStack {
+          Text("\(dataSource.items.count) items")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer()
+          HStack(spacing: 12) {
+            Toggle("Cache State", isOn: $cachesCellState)
+              .font(.caption)
+              .toggleStyle(.switch)
+              .controlSize(.mini)
+            Text("v\(dataSource.changeCounter)")
+              .font(.caption2)
+              .foregroundStyle(.tertiary)
+          }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
       }
-      .padding(.horizontal)
-      .padding(.vertical, 8)
       .background(.bar)
     }
     .toolbar {
-      ToolbarItemGroup(placement: .primaryAction) {
-        Menu {
-          Button {
-            let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
-            dataSource.prepend(messages)
-            nextPrependId -= 5
-          } label: {
-            Label("Prepend 5", systemImage: "arrow.up.doc")
-          }
+      ToolbarItemGroup(placement: .bottomBar) {
+        // Prepend
+        Button {
+          let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+          dataSource.prepend(messages)
+          nextPrependId -= 5
+        } label: {
+          Image(systemName: "arrow.up.doc")
+        }
 
-          Button {
-            let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-            dataSource.append(messages)
-            nextAppendId += 5
-          } label: {
-            Label("Append 5", systemImage: "arrow.down.doc")
-          }
+        // Append
+        Button {
+          let messages = generateSampleMessages(count: 5, startId: nextAppendId)
+          dataSource.append(messages)
+          nextAppendId += 5
+        } label: {
+          Image(systemName: "arrow.down.doc")
+        }
 
-          Divider()
+        // Insert at middle
+        Button {
+          let middleIndex = dataSource.items.count / 2
+          let message = ChatMessage(id: nextAppendId, text: "Inserted at \(middleIndex)")
+          dataSource.insert([message], at: middleIndex)
+          nextAppendId += 1
+        } label: {
+          Image(systemName: "arrow.right.doc.on.clipboard")
+        }
 
-          Button {
-            if var item = dataSource.items.first(where: { $0.id == 5 }) {
-              item.isExpanded.toggle()
-              item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
-              dataSource.update([item])
-            }
-          } label: {
-            Label("Update ID:5", systemImage: "pencil")
-          }
+        Spacer()
 
-          Button(role: .destructive) {
-            dataSource.remove(id: 10)
-          } label: {
-            Label("Remove ID:10", systemImage: "trash")
-          }
-
-          Divider()
-
-          Button {
-            nextPrependId = -1
-            nextAppendId = 5
-            let newItems = generateSampleMessages(count: 5, startId: 0)
-            dataSource.setItems(newItems)
-          } label: {
-            Label("Reset (5 items)", systemImage: "arrow.counterclockwise")
+        // Update
+        Button {
+          if var item = dataSource.items.first(where: { $0.id == 5 }) {
+            item.isExpanded.toggle()
+            item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
+            dataSource.update([item])
           }
         } label: {
-          Image(systemName: "ellipsis.circle")
+          Image(systemName: "pencil")
+        }
+
+        // Remove
+        Button {
+          dataSource.remove(id: 10)
+        } label: {
+          Image(systemName: "trash")
+        }
+
+        Spacer()
+
+        // Scroll to Top
+        Button {
+          scrollPosition.scrollTo(edge: .top)
+        } label: {
+          Image(systemName: "arrow.up.to.line")
+        }
+
+        // Scroll to Bottom
+        Button {
+          scrollPosition.scrollTo(edge: .bottom)
+        } label: {
+          Image(systemName: "arrow.down.to.line")
+        }
+
+        Spacer()
+
+        // Reset
+        Button {
+          nextPrependId = -1
+          nextAppendId = 5
+          let newItems = generateSampleMessages(count: 5, startId: 0)
+          dataSource.setItems(newItems)
+        } label: {
+          Image(systemName: "arrow.counterclockwise")
         }
       }
+    }
+  }
+}
+
+// MARK: - StatefulChatBubbleView
+
+/// A chat bubble view with internal @State to demonstrate state persistence.
+/// When cachesCellState is enabled, the tap count persists across cell reuse.
+struct StatefulChatBubbleView: View {
+
+  let message: ChatMessage
+  let namespace: Namespace.ID?
+
+  @State private var tapCount = 0
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      chatBubbleContent
+      Text("Taps: \(tapCount)")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+    .contentShape(Rectangle())
+    .onTapGesture {
+      tapCount += 1
+    }
+  }
+
+  @ViewBuilder
+  private var chatBubbleContent: some View {
+    if #available(iOS 18.0, *), let namespace {
+      ChatBubbleView(message: message)
+        .matchedTransitionSource(id: message.id, in: namespace)
+    } else {
+      ChatBubbleView(message: message)
     }
   }
 }

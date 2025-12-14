@@ -23,7 +23,8 @@ public final class TiledViewCell: UICollectionViewCell {
 
   public override func prepareForReuse() {
     super.prepareForReuse()
-    contentConfiguration = nil
+    // Note: contentConfiguration is not cleared here to support State caching.
+    // When cachesCellState is enabled, the configuration is managed by _TiledView.
   }
 
   public override func preferredLayoutAttributesFitting(
@@ -77,15 +78,27 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
 
+  /// Configuration cache for State persistence
+  /// When cachesCellState is enabled, UIHostingConfiguration is cached per Item.ID
+  /// to preserve SwiftUI @State across cell reuse.
+  private var configurationCache: [Item.ID: UIContentConfiguration] = [:]
+
+  /// Whether to cache UIHostingConfiguration to preserve SwiftUI @State.
+  /// When enabled, each Item gets a persistent configuration, maintaining State.
+  /// When disabled (default), configurations are recreated on each cell reuse.
+  public let cachesCellState: Bool
+
   public typealias DataSource = ListDataSource<Item>
 
   public let onPrepend: (@MainActor () async throws -> Void)?
 
   public init(
     cellBuilder: @escaping (Item) -> Cell,
+    cachesCellState: Bool = false,
     onPrepend: (@MainActor () async throws -> Void)? = nil
   ) {
     self.cellBuilder = cellBuilder
+    self.cachesCellState = cachesCellState
     self.onPrepend = onPrepend
     super.init(frame: .zero)
     setupCollectionView()
@@ -170,6 +183,9 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   private func applyChange(_ change: ListDataSource<Item>.Change, from dataSource: ListDataSource<Item>) {
     switch change {
     case .setItems:
+      if cachesCellState {
+        configurationCache.removeAll()
+      }
       tiledLayout.clear()
       items = dataSource.items
       tiledLayout.appendItems(count: items.count, startingIndex: 0)
@@ -213,6 +229,14 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
         .map { $0.offset }
       items.removeAll { idsSet.contains($0.id) }
       tiledLayout.removeItems(at: indicesToRemove)
+
+      // Clean up configuration cache for removed items
+      if cachesCellState {
+        for id in ids {
+          configurationCache.removeValue(forKey: id)
+        }
+      }
+
       collectionView.reloadData()
     }
   }
@@ -230,7 +254,25 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   public func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
     let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TiledViewCell.reuseIdentifier, for: indexPath) as! TiledViewCell
     let item = items[indexPath.item]
-    cell.configure(with: cellBuilder(item))
+
+    if cachesCellState {
+      // Cache mode: preserve SwiftUI @State by reusing configurations
+      if let cachedConfig = configurationCache[item.id] {
+        cell.contentConfiguration = cachedConfig
+      } else {
+        let config = UIHostingConfiguration {
+          cellBuilder(item)
+        }
+        .margins(.all, 0)
+
+        configurationCache[item.id] = config
+        cell.contentConfiguration = config
+      }
+    } else {
+      // Non-cache mode: traditional behavior
+      cell.configure(with: cellBuilder(item))
+    }
+
     return cell
   }
 
@@ -296,20 +338,27 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
   let onPrepend: (@MainActor () async throws -> Void)?
   @Binding var scrollPosition: TiledScrollPosition
 
+  /// Whether to cache UIHostingConfiguration to preserve SwiftUI @State.
+  /// When enabled, each Item gets a persistent configuration, maintaining State across cell reuse.
+  /// When disabled (default), configurations are recreated on each cell reuse for better memory efficiency.
+  let cachesCellState: Bool
+
   public init(
     dataSource: ListDataSource<Item>,
     scrollPosition: Binding<TiledScrollPosition>,
+    cachesCellState: Bool = false,
     onPrepend: (@MainActor () async throws -> Void)? = nil,
     @ViewBuilder cellBuilder: @escaping (Item) -> Cell
   ) {
     self.dataSource = dataSource
     self._scrollPosition = scrollPosition
+    self.cachesCellState = cachesCellState
     self.onPrepend = onPrepend
     self.cellBuilder = cellBuilder
   }
 
   public func makeUIView(context: Context) -> _TiledView<Item, Cell> {
-    let view = _TiledView(cellBuilder: cellBuilder, onPrepend: onPrepend)
+    let view = _TiledView(cellBuilder: cellBuilder, cachesCellState: cachesCellState, onPrepend: onPrepend)
     view.applyDataSource(dataSource)
     return view
   }
