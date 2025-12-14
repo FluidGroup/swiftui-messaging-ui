@@ -10,6 +10,7 @@ import MessagingUI
 
 enum DemoDestination: Hashable {
   case tiledView
+  case iMessage
   case applyDiffDemo
   case swiftDataMemo
 }
@@ -32,6 +33,19 @@ struct ContentView: View {
               }
             } icon: {
               Image(systemName: "square.grid.2x2")
+            }
+          }
+
+          NavigationLink(value: DemoDestination.iMessage) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("iMessage Style")
+                Text("Chat bubble demo")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "message.fill")
             }
           }
 
@@ -71,6 +85,8 @@ struct ContentView: View {
           BookTiledView(namespace: namespace)
             .navigationTitle("TiledView")
             .navigationBarTitleDisplayMode(.inline)
+        case .iMessage:
+          iMessageDemo()
         case .applyDiffDemo:
           BookApplyDiffDemo()
             .navigationTitle("applyDiff Demo")
