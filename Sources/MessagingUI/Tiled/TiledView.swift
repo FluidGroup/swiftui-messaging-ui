@@ -318,7 +318,7 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
   // MARK: - Scroll Position
 
-  func applyScrollPosition(_ position: TiledScrollPosition) {
+  func applyScrollPosition(_ position: TiledScrollPosition, disableAnimation: Bool = false) {
     guard position.version > lastAppliedScrollVersion else { return }
     lastAppliedScrollVersion = position.version
 
@@ -340,7 +340,10 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       targetRect = CGRect(x: 0, y: contentBottom - 1, width: boundsWidth, height: 1)
     }
 
-    collectionView.scrollRectToVisible(targetRect, animated: position.animated)
+    // If called from SwiftUI animation transaction, disable UIKit animation
+    // to avoid conflicts between SwiftUI and UIKit animation systems
+    let shouldAnimate = position.animated && !disableAnimation
+    collectionView.scrollRectToVisible(targetRect, animated: shouldAnimate)
     collectionView.flashScrollIndicators()
   }
 
@@ -570,7 +573,11 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
     uiView.onScrollGeometryChange = onScrollGeometryChange
     uiView.additionalContentInset = additionalContentInset
     uiView.applyDataSource(dataSource)
-    uiView.applyScrollPosition(scrollPosition)
+
+    // Detect if we're in a SwiftUI animation transaction
+    // If so, disable UIKit animation to avoid conflicts
+    let isInSwiftUIAnimation = context.transaction.animation != nil
+    uiView.applyScrollPosition(scrollPosition, disableAnimation: isInSwiftUIAnimation)
 
     // Apply external cellStates if provided
     if let cellStates {
