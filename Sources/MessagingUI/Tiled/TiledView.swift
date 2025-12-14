@@ -169,7 +169,7 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
     switch change {
     case .setItems:
       tiledLayout.clear()
-      items = dataSource.items
+      items = Array(dataSource.items)
       tiledLayout.appendItems(count: items.count, startingIndex: 0)
       collectionView.reloadData()
 
