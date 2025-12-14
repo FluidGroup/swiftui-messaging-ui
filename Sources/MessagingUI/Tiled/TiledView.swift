@@ -175,7 +175,9 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
     // Apply only changes after the cursor
     let pendingChanges = dataSource.pendingChanges
-    guard appliedCursor < pendingChanges.count else { return }
+    guard appliedCursor < pendingChanges.count else {
+      return 
+    }
 
     let newChanges = pendingChanges[appliedCursor...]
     for change in newChanges {
@@ -291,23 +293,35 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
     guard let edge = position.edge else { return }
 
+    let inset = collectionView.contentInset
+    let contentHeight = collectionView.contentSize.height
+    let boundsHeight = collectionView.bounds.height
+
+    let targetOffset: CGPoint
     switch edge {
     case .top:
-      guard items.count > 0 else { return }
-      collectionView.scrollToItem(
-        at: IndexPath(item: 0, section: 0),
-        at: .top,
-        animated: position.animated
-      )
+      // Scroll to the top (considering negative top inset)
+      targetOffset = CGPoint(x: 0, y: -inset.top)
     case .bottom:
-      guard items.count > 0 else { return }
-      collectionView.scrollToItem(
-        at: IndexPath(item: items.count - 1, section: 0),
-        at: .bottom,
-        animated: position.animated
-      )
+      // Scroll to the bottom
+      targetOffset = CGPoint(x: 0, y: contentHeight - boundsHeight + inset.bottom)
     }
+
     collectionView.flashScrollIndicators()
+    
+    #if false
+    if #available(iOS 18.0, *) {    
+      UIView.animate(.smooth) { 
+        collectionView.contentOffset.y = targetOffset.y
+        collectionView.collectionViewLayout.invalidateLayout()        
+      }
+    } else {
+      collectionView.setContentOffset(targetOffset, animated: position.animated)
+    }
+    #else
+    collectionView.setContentOffset(targetOffset, animated: position.animated)
+    #endif
+       
   }
 
   // MARK: - Cell State Management
