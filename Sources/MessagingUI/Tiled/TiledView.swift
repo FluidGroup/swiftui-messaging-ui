@@ -56,8 +56,8 @@ public final class TiledViewCell: UICollectionViewCell {
 
 public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
 
-  private unowned var collectionView: UICollectionView!
-  private unowned var tiledLayout: TiledCollectionViewLayout!
+  private let tiledLayout: TiledCollectionViewLayout = .init()
+  private var collectionView: UICollectionView!
 
   private var items: [Item] = []
   private let cellBuilder: (Item) -> Cell
@@ -88,40 +88,38 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
     self.cellBuilder = cellBuilder
     self.onPrepend = onPrepend
     super.init(frame: .zero)
-    setupCollectionView()
+
+    do {
+      tiledLayout.itemSizeProvider = { [weak self] index, width in
+        self?.measureSize(at: index, width: width)
+      }
+      
+      collectionView = UICollectionView(frame: .zero, collectionViewLayout: tiledLayout)
+      collectionView.translatesAutoresizingMaskIntoConstraints = false
+      collectionView.selfSizingInvalidation = .enabledIncludingConstraints
+      collectionView.backgroundColor = .systemBackground
+      collectionView.allowsSelection = true
+      collectionView.dataSource = self
+      collectionView.delegate = self
+      collectionView.alwaysBounceVertical = true
+      
+      collectionView.register(TiledViewCell.self, forCellWithReuseIdentifier: TiledViewCell.reuseIdentifier)
+      
+      addSubview(collectionView)
+      
+      NSLayoutConstraint.activate([
+        collectionView.topAnchor.constraint(equalTo: topAnchor),
+        collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
+        collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
+        collectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
+      ])
+    }
   }
 
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
   }
-
-  private func setupCollectionView() {
-    tiledLayout = TiledCollectionViewLayout()
-    tiledLayout.itemSizeProvider = { [weak self] index, width in
-      self?.measureSize(at: index, width: width)
-    }
-
-    collectionView = UICollectionView(frame: .zero, collectionViewLayout: tiledLayout)
-    collectionView.translatesAutoresizingMaskIntoConstraints = false
-    collectionView.selfSizingInvalidation = .enabledIncludingConstraints
-    collectionView.backgroundColor = .systemBackground
-    collectionView.allowsSelection = true
-    collectionView.dataSource = self
-    collectionView.delegate = self
-    collectionView.alwaysBounceVertical = true
-
-    collectionView.register(TiledViewCell.self, forCellWithReuseIdentifier: TiledViewCell.reuseIdentifier)
-
-    addSubview(collectionView)
-
-    NSLayoutConstraint.activate([
-      collectionView.topAnchor.constraint(equalTo: topAnchor),
-      collectionView.leadingAnchor.constraint(equalTo: leadingAnchor),
-      collectionView.trailingAnchor.constraint(equalTo: trailingAnchor),
-      collectionView.bottomAnchor.constraint(equalTo: bottomAnchor),
-    ])
-  }
-
+ 
   private func measureSize(at index: Int, width: CGFloat) -> CGSize? {
     guard index < items.count else { return nil }
     let item = items[index]
@@ -153,7 +151,7 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       lastDataSourceID = dataSource.id
       appliedCursor = 0
       tiledLayout.clear()
-      items = []
+      items.removeAll()
     }
 
     // Apply only changes after the cursor
@@ -261,7 +259,7 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   // MARK: - Scroll Position
 
   func applyScrollPosition(_ position: TiledScrollPosition) {
-    guard position.version != lastAppliedScrollVersion else { return }
+    guard position.version > lastAppliedScrollVersion else { return }
     lastAppliedScrollVersion = position.version
 
     guard let edge = position.edge else { return }

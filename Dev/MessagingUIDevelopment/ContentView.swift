@@ -16,6 +16,8 @@ enum DemoDestination: Hashable {
 
 struct ContentView: View {
 
+  @Namespace private var namespace
+
   var body: some View {
     NavigationStack {
       List {
@@ -66,7 +68,7 @@ struct ContentView: View {
       .navigationDestination(for: DemoDestination.self) { destination in
         switch destination {
         case .tiledView:
-          BookTiledView()
+          BookTiledView(namespace: namespace)
             .navigationTitle("TiledView")
             .navigationBarTitleDisplayMode(.inline)
         case .applyDiffDemo:
@@ -79,7 +81,12 @@ struct ContentView: View {
         }
       }
       .navigationDestination(for: ChatMessage.self) { message in
-        Text("Detail View for Message ID: \(message.id)")
+        if #available(iOS 18.0, *) {
+          Text("Detail View for Message ID: \(message.id)")
+            .navigationTransition(.zoom(sourceID: message.id, in: namespace))
+        } else {
+          Text("Detail View for Message ID: \(message.id)")
+        }
       }
     }
   }

@@ -10,16 +10,16 @@ struct ChatMessage: Identifiable, Hashable, Equatable, Sendable {
 
 func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
   let sampleTexts: [String] = [
-    "こんにちは！",
-    "今日はいい天気ですね。散歩に行きませんか？",
-    "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。",
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt",
-    "了解です👍",
-    "ちょっと待ってください。確認してから返信しますね。",
-    "週末の予定はどうですか？もし空いていたら、一緒にカフェでも行きませんか？新しくオープンしたお店があるんですよ。",
+    "Hello!",
+    "Nice weather today. Want to go for a walk?",
+    "The movie yesterday was amazing! The ending scene was so impressive. I'd love to watch it again.",
+    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt.",
+    "Got it 👍",
+    "Hold on, let me check and get back to you.",
+    "Any plans for the weekend? If you're free, want to grab coffee? There's a new place that just opened.",
     "OK",
-    "今から出発します！",
-    "長いメッセージのテストです。Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris.",
+    "On my way!",
+    "This is a long message for testing. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.",
     "🎉🎊✨",
   ]
 
@@ -64,6 +64,12 @@ struct ChatBubbleView: View {
               .foregroundStyle(counter > 0 ? .white : .secondary)
           }
           .buttonStyle(.plain)
+          
+          Button("Expand") {
+            withAnimation(.smooth) {
+              isExpanded.toggle()
+            }
+          }
         }
 
         Text(message.text)
@@ -85,12 +91,7 @@ struct ChatBubbleView: View {
 
       Spacer(minLength: 44)
     }
-    .contentShape(Rectangle())
-    .onTapGesture {
-      withAnimation(.snappy) {
-        isExpanded.toggle()
-      }
-    }
+    .contentShape(Rectangle())  
     .padding(.horizontal, 16)
     .padding(.vertical, 4)
   }

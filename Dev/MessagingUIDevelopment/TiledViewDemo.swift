@@ -120,20 +120,36 @@ struct BookTiledView: View {
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
 
-  // TiledView options
-  @State private var cachesCellState = false
+  let namespace: Namespace.ID
+  
+  @ViewBuilder
+  private var tiledView: some View {
+    if #available(iOS 18.0, *) {
+      TiledView(
+        dataSource: dataSource,
+        scrollPosition: $scrollPosition,
+        cellBuilder: { message in
+          NavigationLink(value: message) {
+            ChatBubbleView(message: message)
+              .matchedTransitionSource(id: message.id, in: namespace)
+          }
+        }
+      )
+    } else {
+      TiledView(
+        dataSource: dataSource,
+        scrollPosition: $scrollPosition,
+        cellBuilder: { message in
+          NavigationLink(value: message) {
+            ChatBubbleView(message: message)
+          }
+        }
+      )
+    }      
+  }    
 
   var body: some View {
-    TiledView(
-      dataSource: dataSource,
-      scrollPosition: $scrollPosition,
-      cachesCellState: cachesCellState,
-      cellBuilder: { message in
-        NavigationLink(value: message) {
-          ChatBubbleView(message: message)
-        }
-      }
-    )
+    tiledView
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {
         Divider()
@@ -143,10 +159,6 @@ struct BookTiledView: View {
             .foregroundStyle(.secondary)
           Spacer()
           HStack(spacing: 12) {
-            Toggle("Cache State", isOn: $cachesCellState)
-              .font(.caption)
-              .toggleStyle(.switch)
-              .controlSize(.mini)
             Text("v\(dataSource.changeCounter)")
               .font(.caption2)
               .foregroundStyle(.tertiary)
@@ -177,46 +189,15 @@ struct BookTiledView: View {
           Image(systemName: "arrow.down.doc")
         }
 
-        // Insert at middle
-        Button {
-          let middleIndex = dataSource.items.count / 2
-          let message = ChatMessage(id: nextAppendId, text: "Inserted at \(middleIndex)")
-          dataSource.insert([message], at: middleIndex)
-          nextAppendId += 1
-        } label: {
-          Image(systemName: "arrow.right.doc.on.clipboard")
-        }
-
         Spacer()
 
-        // Update
-        Button {
-          if var item = dataSource.items.first(where: { $0.id == 5 }) {
-            item.isExpanded.toggle()
-            item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
-            dataSource.update([item])
-          }
-        } label: {
-          Image(systemName: "pencil")
-        }
-
-        // Remove
-        Button {
-          dataSource.remove(id: 10)
-        } label: {
-          Image(systemName: "trash")
-        }
-
-        Spacer()
-
-        // Scroll to Top
+        // Scroll
         Button {
           scrollPosition.scrollTo(edge: .top)
         } label: {
           Image(systemName: "arrow.up.to.line")
         }
 
-        // Scroll to Bottom
         Button {
           scrollPosition.scrollTo(edge: .bottom)
         } label: {
@@ -225,14 +206,45 @@ struct BookTiledView: View {
 
         Spacer()
 
-        // Reset
-        Button {
-          nextPrependId = -1
-          nextAppendId = 5
-          let newItems = generateSampleMessages(count: 5, startId: 0)
-          dataSource.setItems(newItems)
+        // More actions
+        Menu {
+          Button {
+            let middleIndex = dataSource.items.count / 2
+            let message = ChatMessage(id: nextAppendId, text: "Inserted at \(middleIndex)")
+            dataSource.insert([message], at: middleIndex)
+            nextAppendId += 1
+          } label: {
+            Label("Insert at middle", systemImage: "arrow.right.doc.on.clipboard")
+          }
+
+          Button {
+            if var item = dataSource.items.first(where: { $0.id == 5 }) {
+              item.isExpanded.toggle()
+              item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
+              dataSource.update([item])
+            }
+          } label: {
+            Label("Update ID:5", systemImage: "pencil")
+          }
+
+          Button(role: .destructive) {
+            dataSource.remove(id: 10)
+          } label: {
+            Label("Remove ID:10", systemImage: "trash")
+          }
+
+          Divider()
+
+          Button {
+            nextPrependId = -1
+            nextAppendId = 5
+            let newItems = generateSampleMessages(count: 5, startId: 0)
+            dataSource.setItems(newItems)
+          } label: {
+            Label("Reset", systemImage: "arrow.counterclockwise")
+          }
         } label: {
-          Image(systemName: "arrow.counterclockwise")
+          Image(systemName: "ellipsis.circle")
         }
       }
     }
@@ -240,7 +252,16 @@ struct BookTiledView: View {
 }
 
 #Preview("TiledView (UICollectionView)") {
+  @Previewable @Namespace var namespace
   NavigationStack {
-    BookTiledView()
+    BookTiledView(namespace: namespace)
+      .navigationDestination(for: ChatMessage.self) { message in
+        if #available(iOS 18.0, *) {
+          Text("Detail View for Message ID: \(message.id)")
+            .navigationTransition(.zoom(sourceID: message.id, in: namespace))
+        } else {
+          Text("Detail View for Message ID: \(message.id)")
+        }
+      }
   }
 }

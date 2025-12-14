@@ -18,6 +18,10 @@ public struct TiledScrollPosition: Equatable, Sendable {
   public mutating func scrollTo(edge: Edge, animated: Bool = true) {
     self.edge = edge
     self.animated = animated
-    self.version += 1
+    makeDirty()
+  }
+  
+  private mutating func makeDirty() {
+    self.version &+= 1
   }
 }
