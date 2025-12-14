@@ -128,7 +128,7 @@ struct BookTiledView: View {
       TiledView(
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
-        cellBuilder: { message in
+        cellBuilder: { message, _ in
           NavigationLink(value: message) {
             ChatBubbleView(message: message)
               .matchedTransitionSource(id: message.id, in: namespace)
@@ -139,13 +139,13 @@ struct BookTiledView: View {
       TiledView(
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
-        cellBuilder: { message in
+        cellBuilder: { message, _ in
           NavigationLink(value: message) {
             ChatBubbleView(message: message)
           }
         }
       )
-    }      
+    }
   }    
 
   var body: some View {

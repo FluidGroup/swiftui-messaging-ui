@@ -184,7 +184,7 @@ struct BookApplyDiffDemo: View {
       TiledView(
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
-        cellBuilder: { message in
+        cellBuilder: { message, _ in
           ChatBubbleView(message: message)
         }
       )

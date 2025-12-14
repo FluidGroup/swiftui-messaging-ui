@@ -14,6 +14,13 @@ public final class TiledViewCell: UICollectionViewCell {
 
   public static let reuseIdentifier = "TiledViewCell"
 
+  /// Custom state for this cell
+  public internal(set) var customState: CellState = .empty
+
+  /// Handler called when state changes to update content
+  public var _updateConfigurationHandler:
+    @MainActor (TiledViewCell, CellState) -> Void = { _, _ in }
+
   public func configure<Content: View>(with content: Content) {
     contentConfiguration = UIHostingConfiguration {
       content
@@ -21,9 +28,17 @@ public final class TiledViewCell: UICollectionViewCell {
     .margins(.all, 0)
   }
 
+  /// Update cell content with new state
+  public func updateContent(using customState: CellState) {
+    self.customState = customState
+    _updateConfigurationHandler(self, customState)
+  }
+
   public override func prepareForReuse() {
     super.prepareForReuse()
     contentConfiguration = nil
+    customState = .empty
+    _updateConfigurationHandler = { _, _ in }
   }
 
   public override func preferredLayoutAttributesFitting(
@@ -60,7 +75,7 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   private var collectionView: UICollectionView!
 
   private var items: [Item] = []
-  private let cellBuilder: (Item) -> Cell
+  private let cellBuilder: (Item, CellState) -> Cell
 
   /// prototype cell for size measurement
   private let sizingCell = TiledViewCell()
@@ -77,12 +92,15 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
 
+  /// Per-item cell state storage
+  private var stateMap: [Item.ID: CellState] = [:]
+
   public typealias DataSource = ListDataSource<Item>
 
   public let onPrepend: (@MainActor () async throws -> Void)?
 
   public init(
-    cellBuilder: @escaping (Item) -> Cell,
+    cellBuilder: @escaping (Item, CellState) -> Cell,
     onPrepend: (@MainActor () async throws -> Void)? = nil
   ) {
     self.cellBuilder = cellBuilder
@@ -123,9 +141,10 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   private func measureSize(at index: Int, width: CGFloat) -> CGSize? {
     guard index < items.count else { return nil }
     let item = items[index]
+    let state = stateMap[item.id] ?? .empty
 
-    // UIHostingConfigurationと同じ方法で計測
-    sizingCell.configure(with: cellBuilder(item))
+    // Measure using the same UIHostingConfiguration approach
+    sizingCell.configure(with: cellBuilder(item, state))
     sizingCell.layoutIfNeeded()
 
     let targetSize = CGSize(
@@ -228,7 +247,15 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   public func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
     let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TiledViewCell.reuseIdentifier, for: indexPath) as! TiledViewCell
     let item = items[indexPath.item]
-    cell.configure(with: cellBuilder(item))
+    let state = stateMap[item.id] ?? .empty
+
+    cell.configure(with: cellBuilder(item, state))
+    cell.customState = state
+    cell._updateConfigurationHandler = { [weak self] cell, newState in
+      guard let self else { return }
+      cell.configure(with: self.cellBuilder(item, newState))
+    }
+
     return cell
   }
 
@@ -280,6 +307,55 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
         animated: position.animated
       )
     }
+    collectionView.flashScrollIndicators()
+  }
+
+  // MARK: - Cell State Management
+
+  /// Sets the entire CellState for an item (internal use)
+  func _setState(cellState: CellState, for itemId: Item.ID) {
+    stateMap[itemId] = cellState
+
+    // Update visible cell if exists
+    if let index = items.firstIndex(where: { $0.id == itemId }),
+       let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0))
+         as? TiledViewCell {
+      cell.updateContent(using: cellState)
+    }
+  }
+
+  /// Sets an individual state value for an item
+  public func setState<Key: CustomStateKey>(
+    _ value: Key.Value,
+    key: Key.Type,
+    for itemId: Item.ID
+  ) {
+    var state = stateMap[itemId, default: .empty]
+    state[Key.self] = value
+    stateMap[itemId] = state
+
+    if let index = items.firstIndex(where: { $0.id == itemId }),
+       let cell = collectionView.cellForItem(at: IndexPath(item: index, section: 0))
+         as? TiledViewCell {
+      cell.updateContent(using: state)
+    }
+  }
+
+  /// Gets a state value for an item
+  public func state<Key: CustomStateKey>(for itemId: Item.ID, key: Key.Type) -> Key.Value {
+    stateMap[itemId]?[Key.self] ?? Key.defaultValue
+  }
+
+  /// Resets all cell states
+  public func resetState() {
+    stateMap.removeAll()
+
+    for cell in collectionView.visibleCells {
+      if let tiledCell = cell as? TiledViewCell {
+        tiledCell.customState = .empty
+        tiledCell.updateContent(using: .empty)
+      }
+    }
   }
 }
 
@@ -290,18 +366,21 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
   public typealias UIViewType = _TiledView<Item, Cell>
 
   let dataSource: ListDataSource<Item>
-  let cellBuilder: (Item) -> Cell
+  let cellBuilder: (Item, CellState) -> Cell
+  let cellStates: [Item.ID: CellState]?
   let onPrepend: (@MainActor () async throws -> Void)?
   @Binding var scrollPosition: TiledScrollPosition
 
   public init(
     dataSource: ListDataSource<Item>,
     scrollPosition: Binding<TiledScrollPosition>,
+    cellStates: [Item.ID: CellState]? = nil,
     onPrepend: (@MainActor () async throws -> Void)? = nil,
-    @ViewBuilder cellBuilder: @escaping (Item) -> Cell
+    @ViewBuilder cellBuilder: @escaping (Item, CellState) -> Cell
   ) {
     self.dataSource = dataSource
     self._scrollPosition = scrollPosition
+    self.cellStates = cellStates
     self.onPrepend = onPrepend
     self.cellBuilder = cellBuilder
   }
@@ -315,5 +394,12 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
   public func updateUIView(_ uiView: _TiledView<Item, Cell>, context: Context) {
     uiView.applyDataSource(dataSource)
     uiView.applyScrollPosition(scrollPosition)
+
+    // Apply external cellStates if provided
+    if let cellStates {
+      for (id, state) in cellStates {
+        uiView._setState(cellState: state, for: id)
+      }
+    }
   }
 }

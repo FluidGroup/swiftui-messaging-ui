@@ -248,7 +248,7 @@ struct SwiftDataMemoDemo: View {
           onPrepend: {
             store.loadMore()
           },
-          cellBuilder: { item in
+          cellBuilder: { item, _ in
             MemoBubbleView(item: item) {
               store.deleteMemo(id: item.id)
             }
