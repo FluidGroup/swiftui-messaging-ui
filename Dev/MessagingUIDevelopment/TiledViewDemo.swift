@@ -115,7 +115,7 @@ struct ListDemoControlPanel: View {
 
 struct BookTiledView: View {
 
-  @State private var dataSource: ListDataSource<ChatMessage>
+  @State private var dataSource = ListDataSource<ChatMessage>()
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
@@ -123,37 +123,17 @@ struct BookTiledView: View {
   // TiledView options
   @State private var cachesCellState = false
 
-  let namespace: Namespace.ID
-
-  init(namespace: Namespace.ID) {
-    self.namespace = namespace
-    _dataSource = State(initialValue: ListDataSource())
-  }
-
   var body: some View {
-    Group {
-      if #available(iOS 18.0, *) {
-        TiledView(
-          dataSource: dataSource,
-          scrollPosition: $scrollPosition,
-          cachesCellState: cachesCellState,
-          cellBuilder: { message in
-            NavigationLink(value: message) {
-              StatefulChatBubbleView(message: message, namespace: namespace)
-            }
-          }
-        )
-      } else {
-        TiledView(
-          dataSource: dataSource,
-          scrollPosition: $scrollPosition,
-          cachesCellState: cachesCellState,
-          cellBuilder: { message in
-            StatefulChatBubbleView(message: message, namespace: nil)
-          }
-        )
+    TiledView(
+      dataSource: dataSource,
+      scrollPosition: $scrollPosition,
+      cachesCellState: cachesCellState,
+      cellBuilder: { message in
+        NavigationLink(value: message) {
+          ChatBubbleView(message: message)
+        }
       }
-    }
+    )
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {
         Divider()
@@ -259,60 +239,8 @@ struct BookTiledView: View {
   }
 }
 
-// MARK: - StatefulChatBubbleView
-
-/// A chat bubble view with internal @State to demonstrate state persistence.
-/// When cachesCellState is enabled, the tap count persists across cell reuse.
-struct StatefulChatBubbleView: View {
-
-  let message: ChatMessage
-  let namespace: Namespace.ID?
-
-  @State private var tapCount = 0
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      chatBubbleContent
-      Text("Taps: \(tapCount)")
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-    }
-    .contentShape(Rectangle())
-    .onTapGesture {
-      tapCount += 1
-    }
-  }
-
-  @ViewBuilder
-  private var chatBubbleContent: some View {
-    if #available(iOS 18.0, *), let namespace {
-      ChatBubbleView(message: message)
-        .matchedTransitionSource(id: message.id, in: namespace)
-    } else {
-      ChatBubbleView(message: message)
-    }
-  }
-}
-
 #Preview("TiledView (UICollectionView)") {
-  struct PreviewWrapper: View {
-    @Namespace private var namespace
-
-    var body: some View {
-      NavigationStack {
-        BookTiledView(namespace: namespace)
-          .navigationDestination(for: ChatMessage.self) { message in
-            if #available(iOS 18.0, *) {
-              Text("Detail View for Message ID: \(message.id)")
-                .navigationTransition(
-                  .zoom(sourceID: message.id, in: namespace)
-                )
-            } else {
-              Text("Detail View for Message ID: \(message.id)")
-            }
-          }
-      }
-    }
+  NavigationStack {
+    BookTiledView()
   }
-  return PreviewWrapper()
 }

@@ -32,66 +32,49 @@ func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
 
 // MARK: - Chat Bubble View
 
+/// Cell with @State to demonstrate state persistence.
+/// When cachesCellState is enabled, counter and isExpanded persist across cell reuse.
 struct ChatBubbleView: View {
 
   let message: ChatMessage
 
-  @State private var isLocalExpanded: Bool = true
+  @State private var counter = 0
+  @State private var isExpanded = false
 
   var body: some View {
     HStack {
       VStack(alignment: .leading, spacing: 4) {
-        Button("Expand") {
-          withAnimation(.smooth) {
-            isLocalExpanded.toggle()
-          }
-        }
-        .font(.caption2)
         HStack {
           Text("ID: \(message.id)")
             .font(.caption)
             .foregroundStyle(.secondary)
-
           Spacer()
-
-          Image(systemName: isLocalExpanded ? "chevron.up" : "chevron.down")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+          Button {
+            counter += 1
+          } label: {
+            Text("\(counter)")
+              .font(.caption)
+              .monospacedDigit()
+              .padding(.horizontal, 8)
+              .padding(.vertical, 2)
+              .background(
+                Capsule()
+                  .fill(counter > 0 ? Color.blue : Color(.systemGray5))
+              )
+              .foregroundStyle(counter > 0 ? .white : .secondary)
+          }
+          .buttonStyle(.plain)
         }
 
         Text(message.text)
           .font(.system(size: 16))
           .fixedSize(horizontal: false, vertical: true)
 
-        if message.isExpanded {
-          Text("(DataSource expanded)")
-            .font(.system(size: 14))
-            .foregroundStyle(.orange)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-        
-
-        if isLocalExpanded {
-          VStack(alignment: .leading, spacing: 10) {
-            Text("Local expanded content")
-              .font(.system(size: 14))
-              .foregroundStyle(.blue)
-              .fixedSize(horizontal: false, vertical: true)
-            
-            Text("This is additional content that appears when you tap the cell. It demonstrates that local @State changes can also affect cell height.")
-              .font(.system(size: 12))
-              .fixedSize(horizontal: false, vertical: true)
-
-            HStack {
-              ForEach(0..<3) { i in
-                Circle()
-                  .fill(Color.blue.opacity(0.3))
-                  .frame(width: 30, height: 30)
-                  .overlay(Text("\(i + 1)").font(.caption2))
-              }
-            }
-          }          
-          .padding(.top, 8)
+        if isExpanded {
+          Text("Expanded (local @State)")
+            .font(.caption)
+            .foregroundStyle(.blue)
+            .padding(.top, 4)
         }
       }
       .padding(12)
@@ -102,14 +85,14 @@ struct ChatBubbleView: View {
 
       Spacer(minLength: 44)
     }
-    .contentShape(Rectangle())   
-    .padding(.horizontal, 16)
-    .padding(.vertical, 8)
-    .background(Color.init(white: 0.1, opacity: 0.5))
-    .contextMenu {
-      Button("Hello") {        
+    .contentShape(Rectangle())
+    .onTapGesture {
+      withAnimation(.snappy) {
+        isExpanded.toggle()
       }
     }
+    .padding(.horizontal, 16)
+    .padding(.vertical, 4)
   }
 }
 
