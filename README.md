@@ -1,13 +1,15 @@
 # swiftui-messaging-ui
 
-A SwiftUI component for building messaging interfaces with support for loading older messages and automatic scroll management.
+A high-performance SwiftUI list component built on UICollectionView, designed for messaging interfaces and infinite scrolling lists.
 
 ## Features
 
-- **Message List**: Generic, scrollable message list component
-- **Automatic Scroll Management**: Handles scroll position when loading older messages
-- **Auto Scroll to Bottom**: Optional automatic scrolling to bottom for new messages
-- **Loading State Management**: Internal loading state management with async/await support
+- **TiledView**: High-performance list view using UICollectionView with custom layout
+- **ListDataSource**: Change-tracking data source with efficient diff detection
+- **CellState**: Type-safe per-cell state management
+- **Scroll Position Control**: Programmatic scrolling with SwiftUI-like API
+- **Prepend Support**: Maintains scroll position when loading older content
+- **Self-Sizing Cells**: Automatic cell height calculation
 
 ## Requirements
 
@@ -41,100 +43,212 @@ Or add it through Xcode:
 import MessagingUI
 import SwiftUI
 
-struct Message: Identifiable {
-  let id: UUID
-  let text: String
+struct Message: Identifiable, Equatable {
+  let id: Int
+  var text: String
 }
 
 struct ChatView: View {
-  @State private var messages: [Message] = []
+  @State private var dataSource = ListDataSource<Message>()
+  @State private var scrollPosition = TiledScrollPosition()
 
   var body: some View {
-    MessageList(
-      messages: messages,
-      onLoadOlderMessages: {
-        // Load older messages asynchronously
-        let olderMessages = await loadOlderMessages()
-        messages.insert(contentsOf: olderMessages, at: 0)
+    TiledView(
+      dataSource: dataSource,
+      scrollPosition: $scrollPosition,
+      cellBuilder: { message, _ in
+        MessageBubble(message: message)
       }
-    ) { message in
-      Text(message.text)
-        .padding()
-        .background(Color.blue.opacity(0.1))
-        .cornerRadius(8)
+    )
+    .onAppear {
+      dataSource.setItems(initialMessages)
     }
   }
-
-  func loadOlderMessages() async -> [Message] {
-    // Your loading logic here
-    []
-  }
 }
 ```
 
-### With Auto Scroll to Bottom
+### Loading Older Messages (Prepend)
 
 ```swift
-MessageList(
-  messages: messages,
-  autoScrollToBottom: $autoScrollToBottom,
-  onLoadOlderMessages: {
-    await loadOlderMessages()
+TiledView(
+  dataSource: dataSource,
+  scrollPosition: $scrollPosition,
+  onPrepend: {
+    // Called when user scrolls near the top
+    let olderMessages = await loadOlderMessages()
+    dataSource.prepend(olderMessages)
+  },
+  cellBuilder: { message, _ in
+    MessageBubble(message: message)
   }
-) { message in
-  MessageView(message: message)
+)
+```
+
+### Programmatic Scrolling
+
+```swift
+@State private var scrollPosition = TiledScrollPosition()
+
+// Scroll to bottom
+Button("Scroll to Bottom") {
+  scrollPosition.scrollTo(edge: .bottom)
+}
+
+// Scroll to top
+Button("Scroll to Top") {
+  scrollPosition.scrollTo(edge: .top, animated: false)
 }
 ```
 
-## API
+### Using CellState
 
-### MessageList
-
-A generic message list component that displays messages using a custom view builder.
-
-#### Initializers
+CellState allows you to manage per-cell UI state (like expansion, selection) separately from your data model.
 
 ```swift
-// Simple message list without older message loading
-init(
-  messages: [Message],
-  @ViewBuilder content: @escaping (Message) -> Content
-)
+// 1. Define a state key
+enum IsExpandedKey: CustomStateKey {
+  typealias Value = Bool
+  static var defaultValue: Bool { false }
+}
 
-// Message list with older message loading support
-init(
-  messages: [Message],
-  autoScrollToBottom: Binding<Bool>? = nil,
-  onLoadOlderMessages: @escaping @MainActor () async -> Void,
-  @ViewBuilder content: @escaping (Message) -> Content
+// 2. Add convenience accessor
+extension CellState {
+  var isExpanded: Bool {
+    get { self[IsExpandedKey.self] }
+    set { self[IsExpandedKey.self] = newValue }
+  }
+}
+
+// 3. Use in cell builder
+TiledView(
+  dataSource: dataSource,
+  scrollPosition: $scrollPosition,
+  cellBuilder: { message, state in
+    MessageBubble(
+      message: message,
+      isExpanded: state.isExpanded
+    )
+  }
 )
 ```
 
-#### Parameters
+### ListDataSource Operations
 
-- `messages`: Array of messages to display. Must conform to `Identifiable`.
-- `autoScrollToBottom`: Optional binding that controls automatic scrolling to bottom when new messages are added.
-- `onLoadOlderMessages`: Async closure called when user scrolls up to trigger loading older messages.
-- `content`: A view builder that creates the view for each message.
+```swift
+var dataSource = ListDataSource<Message>()
+
+// Initial load
+dataSource.setItems(messages)
+
+// Add to beginning (older messages)
+dataSource.prepend(olderMessages)
+
+// Add to end (new messages)
+dataSource.append(newMessages)
+
+// Insert at specific position
+dataSource.insert(messages, at: 5)
+
+// Update existing items
+dataSource.update([updatedMessage])
+
+// Remove items
+dataSource.remove(id: messageId)
+dataSource.remove(ids: [id1, id2, id3])
+
+// Auto-detect changes from new array
+dataSource.applyDiff(from: newMessagesArray)
+```
+
+## API Reference
+
+### TiledView
+
+A SwiftUI view that wraps UICollectionView for high-performance list rendering.
+
+```swift
+public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepresentable {
+  public init(
+    dataSource: ListDataSource<Item>,
+    scrollPosition: Binding<TiledScrollPosition>,
+    cellStates: [Item.ID: CellState]? = nil,
+    onPrepend: (@MainActor () async throws -> Void)? = nil,
+    @ViewBuilder cellBuilder: @escaping (Item, CellState) -> Cell
+  )
+}
+```
+
+### ListDataSource
+
+A change-tracking data source that enables efficient list updates.
+
+```swift
+public struct ListDataSource<Item: Identifiable & Equatable> {
+  public var items: Deque<Item> { get }
+  public var changeCounter: Int { get }
+
+  public mutating func setItems(_ items: [Item])
+  public mutating func prepend(_ items: [Item])
+  public mutating func append(_ items: [Item])
+  public mutating func insert(_ items: [Item], at index: Int)
+  public mutating func update(_ items: [Item])
+  public mutating func remove(id: Item.ID)
+  public mutating func remove(ids: [Item.ID])
+  public mutating func applyDiff(from newItems: [Item])
+}
+```
+
+### TiledScrollPosition
+
+A struct for programmatic scroll control, similar to SwiftUI's `ScrollPosition`.
+
+```swift
+public struct TiledScrollPosition {
+  public enum Edge {
+    case top
+    case bottom
+  }
+
+  public mutating func scrollTo(edge: Edge, animated: Bool = true)
+}
+```
+
+### CellState
+
+Type-safe per-cell state storage.
+
+```swift
+public protocol CustomStateKey {
+  associatedtype Value
+  static var defaultValue: Value { get }
+}
+
+public struct CellState {
+  public static var empty: CellState { get }
+  public subscript<T: CustomStateKey>(key: T.Type) -> T.Value { get set }
+}
+```
 
 ## How It Works
 
-### Scroll Position Management
+### Virtual Content Layout
 
-The component intelligently manages scroll position based on the current state:
+TiledView uses a custom UICollectionViewLayout with virtual content height. This enables:
+- Efficient prepend operations without scroll jumps
+- Smooth bidirectional scrolling
+- Minimal memory footprint
 
-1. **Loading Older Messages** (highest priority): When loading older messages, the scroll position is preserved by adjusting the content offset.
-2. **Auto Scroll to Bottom**: When enabled, automatically scrolls to the bottom when new messages are added.
-3. **Normal Operation**: No scroll adjustment, maintaining the user's current scroll position.
+### Change Tracking
 
-### Loading State
+ListDataSource tracks every mutation as a `Change` enum:
+- `.setItems` - Complete replacement
+- `.prepend([ID])` - Items added to beginning
+- `.append([ID])` - Items added to end
+- `.insert(at:, ids:)` - Items inserted at index
+- `.update([ID])` - Existing items modified
+- `.remove([ID])` - Items removed
 
-The loading state is managed internally using async/await. When the user scrolls up to the trigger point:
-
-1. The component sets the internal loading flag
-2. Calls your `onLoadOlderMessages` closure
-3. Automatically adjusts scroll position to maintain the user's viewing context
-4. Clears the loading flag after completion
+TiledView applies only new changes since its last update, ensuring optimal performance.
 
 ## License
 
