@@ -1,0 +1,1 @@
+- Always build for iOS

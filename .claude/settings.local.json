@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__XcodeBuildMCP__discover_projs",
+      "mcp__sosumi__searchAppleDocumentation",
+      "WebFetch(domain:medium.com)",
+      "Bash(tee:*)"
+    ]
+  }
+}
