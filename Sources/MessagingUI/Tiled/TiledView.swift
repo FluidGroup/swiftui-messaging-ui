@@ -382,8 +382,6 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       targetOffsetY = contentBottom
     }
 
-    print("[scrollTo] edge: \(edge), inset: \(inset), contentSize: \(collectionView.contentSize), bounds: \(collectionView.bounds), contentTop: \(contentTop), contentBottom: \(contentBottom), targetOffsetY: \(targetOffsetY)")
-
     if animated {
       let animator = SpringScrollAnimator(spring: .smooth)
       springAnimator = animator
