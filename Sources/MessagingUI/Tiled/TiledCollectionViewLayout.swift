@@ -14,10 +14,6 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   // MARK: - Configuration
 
-  /// Enables caching of layout attributes for better scroll performance.
-  /// When enabled, attributes are reused instead of being recreated on each prepare() call.
-  public var usesAttributesCache: Bool = false
-
   /// Closure to query item size. Receives index and width, returns size.
   /// If nil is returned, estimatedHeight will be used.
   public var itemSizeProvider: ((_ index: Int, _ width: CGFloat) -> CGSize?)?
@@ -34,11 +30,12 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   // MARK: - Private State
 
+  /// On-demand cache for layout attributes (IGListKit-style).
+  /// Attributes are created when requested and cached for reuse.
   private var attributesCache: [IndexPath: UICollectionViewLayoutAttributes] = [:]
   private var itemYPositions: Deque<CGFloat> = []
   private var itemHeights: Deque<CGFloat> = []
-  private var lastPreparedBoundsSize: CGSize = .zero
-  private var needsFullAttributesRebuild: Bool = true
+  private var lastPreparedBoundsWidth: CGFloat = 0
 
   /// Tracks whether item heights need recalculation due to width being 0 at initial add time.
   private var needsHeightRecalculation: Bool = false
@@ -59,81 +56,87 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   public override func prepare() {
     guard let collectionView else { return }
 
-    let boundsSize = collectionView.bounds.size
+    let boundsWidth = collectionView.bounds.width
 
     // Recalculate heights if they were added when width was 0
-    if needsHeightRecalculation && boundsSize.width > 0 {
-      recalculateAllHeights(width: boundsSize.width)
+    if needsHeightRecalculation && boundsWidth > 0 {
+      recalculateAllHeights(width: boundsWidth)
       needsHeightRecalculation = false
+    }
+
+    // Invalidate cache if width changed
+    if lastPreparedBoundsWidth != boundsWidth {
+      attributesCache.removeAll(keepingCapacity: true)
+      lastPreparedBoundsWidth = boundsWidth
     }
 
     // Automatically update contentInset
     collectionView.contentInset = calculateContentInset()
-
-    let itemCount = collectionView.numberOfItems(inSection: 0)
-
-    // Check if we need to rebuild attributes
-    let boundsSizeChanged = lastPreparedBoundsSize != boundsSize
-    let shouldRebuild = !usesAttributesCache || needsFullAttributesRebuild || boundsSizeChanged
-
-    if shouldRebuild {
-      attributesCache.removeAll(keepingCapacity: usesAttributesCache)
-      lastPreparedBoundsSize = boundsSize
-
-      for index in 0..<itemCount {
-        guard index < itemYPositions.count else { break }
-
-        let indexPath = IndexPath(item: index, section: 0)
-        let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
-        attributes.frame = CGRect(
-          x: 0,
-          y: itemYPositions[index],
-          width: boundsSize.width,
-          height: itemHeights[index]
-        )
-        attributesCache[indexPath] = attributes
-      }
-
-      needsFullAttributesRebuild = false
-    } else {
-      // Update only frames (positions may have changed due to height updates)
-      for index in 0..<itemCount {
-        guard index < itemYPositions.count else { break }
-
-        let indexPath = IndexPath(item: index, section: 0)
-        if let attributes = attributesCache[indexPath] {
-          attributes.frame = CGRect(
-            x: 0,
-            y: itemYPositions[index],
-            width: boundsSize.width,
-            height: itemHeights[index]
-          )
-        } else {
-          // New item added, create attributes
-          let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
-          attributes.frame = CGRect(
-            x: 0,
-            y: itemYPositions[index],
-            width: boundsSize.width,
-            height: itemHeights[index]
-          )
-          attributesCache[indexPath] = attributes
-        }
-      }
-
-      // Remove stale entries if item count decreased
-      if attributesCache.count > itemCount {
-        attributesCache = attributesCache.filter { $0.key.item < itemCount }
-      }
-    }
   }
 
   public override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-    attributesCache.values.filter { $0.frame.intersects(rect) }
+    guard !itemYPositions.isEmpty else { return [] }
+
+    let boundsWidth = collectionView?.bounds.width ?? 0
+
+    // Binary search for first visible item
+    let firstIndex = findFirstVisibleIndex(in: rect)
+    guard firstIndex < itemYPositions.count else { return [] }
+
+    // Collect visible items, creating attributes on-demand
+    var result: [UICollectionViewLayoutAttributes] = []
+    for index in firstIndex..<itemYPositions.count {
+      let y = itemYPositions[index]
+
+      // Stop if we're past the visible rect
+      if y > rect.maxY {
+        break
+      }
+
+      let height = itemHeights[index]
+      let frame = CGRect(x: 0, y: y, width: boundsWidth, height: height)
+
+      if frame.intersects(rect) {
+        let indexPath = IndexPath(item: index, section: 0)
+        let attributes = getOrCreateAttributes(for: indexPath, frame: frame)
+        result.append(attributes)
+      }
+    }
+
+    return result
   }
 
   public override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-    attributesCache[indexPath]
+    let index = indexPath.item
+
+    // Return frameless attributes for out-of-bounds indices to avoid UICollectionView crashes
+    guard index >= 0, index < itemYPositions.count else {
+      return UICollectionViewLayoutAttributes(forCellWith: indexPath)
+    }
+
+    let boundsWidth = collectionView?.bounds.width ?? 0
+    let frame = CGRect(
+      x: 0,
+      y: itemYPositions[index],
+      width: boundsWidth,
+      height: itemHeights[index]
+    )
+
+    return getOrCreateAttributes(for: indexPath, frame: frame)
+  }
+
+  /// Gets cached attributes or creates new ones (IGListKit-style on-demand caching).
+  private func getOrCreateAttributes(for indexPath: IndexPath, frame: CGRect) -> UICollectionViewLayoutAttributes {
+    if let cached = attributesCache[indexPath] {
+      // Update frame in case position changed
+      cached.frame = frame
+      return cached
+    }
+
+    let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
+    attributes.frame = frame
+    attributesCache[indexPath] = attributes
+    return attributes
   }
 
   // MARK: - Self-Sizing Support
@@ -199,6 +202,9 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       itemYPositions.insert(y, at: 0)
       itemHeights.insert(height, at: 0)
     }
+
+    // Invalidate cache since IndexPaths shifted
+    invalidateAttributesCache()
   }
 
   public func insertItems(count: Int, at index: Int) {
@@ -231,7 +237,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       itemYPositions[i] += totalInsertedHeight
     }
 
-    needsFullAttributesRebuild = true
+    // Invalidate cache since IndexPaths shifted
+    invalidateAttributesCache()
   }
 
   public func removeItems(at indices: [Int]) {
@@ -255,14 +262,19 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       }
     }
 
-    needsFullAttributesRebuild = true
+    // Invalidate cache since IndexPaths shifted
+    invalidateAttributesCache()
   }
 
   public func clear() {
     itemYPositions.removeAll()
     itemHeights.removeAll()
-    attributesCache.removeAll()
-    needsFullAttributesRebuild = true
+    invalidateAttributesCache()
+  }
+
+  /// Invalidates the attributes cache. Call when IndexPaths change.
+  private func invalidateAttributesCache() {
+    attributesCache.removeAll(keepingCapacity: true)
   }
 
   public func updateItemHeight(at index: Int, newHeight: CGFloat) {
@@ -294,7 +306,33 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       currentY += height
     }
 
-    needsFullAttributesRebuild = true
+    invalidateAttributesCache()
+  }
+
+  /// Binary search to find the first item that could be visible in the rect.
+  ///
+  /// Finds the smallest index where the item's bottom edge >= rect.minY.
+  /// Items before this index are completely above the visible area.
+  ///
+  /// Complexity: O(log n) instead of O(n) linear search.
+  private func findFirstVisibleIndex(in rect: CGRect) -> Int {
+    var low = 0
+    var high = itemYPositions.count
+
+    while low < high {
+      let mid = (low + high) / 2
+      let itemBottom = itemYPositions[mid] + itemHeights[mid]
+
+      if itemBottom < rect.minY {
+        // Item is completely above visible area, search in right half
+        low = mid + 1
+      } else {
+        // Item may be visible or below, search in left half
+        high = mid
+      }
+    }
+
+    return low
   }
 
   private func contentBounds() -> (top: CGFloat, bottom: CGFloat)? {
