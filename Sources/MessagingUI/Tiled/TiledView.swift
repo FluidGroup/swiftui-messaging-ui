@@ -93,6 +93,9 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
 
+  /// Spring animator for smooth scroll animations
+  private var springAnimator: SpringScrollAnimator?
+
   /// Auto-scroll to bottom on append
   var autoScrollsToBottomOnAppend: Bool = false
 
@@ -234,7 +237,7 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
         guard let self else { return }
         
         if scrollsToBottomOnSetItems {
-          scrollTo(edge: .bottom, animated: true)
+          scrollTo(edge: .bottom, animated: false)
         }
       }
 
@@ -356,28 +359,37 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   }
   
   private func scrollTo(edge: TiledScrollPosition.Edge, animated: Bool) {
-        
+    // Cancel any existing animation
+    springAnimator?.stop(finished: false)
+    springAnimator = nil
+
     // Derive content bounds from adjustedContentInset
     // (adjustedContentInset includes contentInset + safe area + keyboard adjustments)
     let inset = collectionView.adjustedContentInset
     let contentTop = -inset.top
-    let contentBottom = collectionView.contentSize.height + inset.bottom
+    let contentBottom = max(
+      contentTop,
+      collectionView.contentSize.height - collectionView.bounds.height + inset.bottom
+    )
 
-    let boundsWidth = collectionView.bounds.width
-
-    let targetRect: CGRect
+    let targetOffsetY: CGFloat
     switch edge {
     case .top:
-      targetRect = CGRect(x: 0, y: contentTop, width: boundsWidth, height: 1)
+      targetOffsetY = contentTop
     case .bottom:
-      targetRect = CGRect(x: 0, y: contentBottom - 1, width: boundsWidth, height: 1)
+      targetOffsetY = contentBottom
     }
-    
-    let animator = UIViewPropertyAnimator.init(duration: 0.6, dampingRatio: 1)
-    animator.addAnimations { [self] in
-      collectionView.scrollRectToVisible(targetRect, animated: false)
+
+    if animated {
+      // Use spring animation (one-shot, self-retaining during animation)
+      let animator = SpringScrollAnimator(spring: .smooth)
+      springAnimator = animator
+      animator.animate(scrollView: collectionView, to: targetOffsetY)
+    } else {
+      collectionView.contentOffset.y = targetOffsetY
+      CATransaction.flush()
     }
-    animator.startAnimation()
+
     collectionView.flashScrollIndicators()
   }
 

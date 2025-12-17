@@ -21,7 +21,7 @@ let package = Package(
     .target(
       name: "MessagingUI",
       dependencies: [
-        .product(name: "DequeModule", package: "swift-collections")
+        .product(name: "DequeModule", package: "swift-collections"),
       ]
     ),
     .testTarget(
