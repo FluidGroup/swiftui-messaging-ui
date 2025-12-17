@@ -421,6 +421,10 @@ struct iMessageSwiftDataDemo: View {
           } label: {
             Label("Clear All", systemImage: "trash")
           }
+          
+          Button("Bottom") {
+            scrollPosition.scrollTo(edge: .bottom, animated: true)
+          }
         } label: {
           Image(systemName: "ellipsis.circle")
         }
