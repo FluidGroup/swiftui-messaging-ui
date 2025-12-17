@@ -14,9 +14,18 @@ public struct TiledScrollPosition: Equatable, Sendable {
   private(set) var version: UInt = 0
 
   /// Auto-scroll to bottom when items are appended
-  public var autoScrollsToBottomOnAppend: Bool = false
+  public var autoScrollsToBottomOnAppend: Bool
 
-  public init() {}
+  /// Scroll to bottom when items are set (initial load)
+  public var scrollsToBottomOnSetItems: Bool
+
+  public init(
+    autoScrollsToBottomOnAppend: Bool = false,
+    scrollsToBottomOnSetItems: Bool = false
+  ) {
+    self.autoScrollsToBottomOnAppend = autoScrollsToBottomOnAppend
+    self.scrollsToBottomOnSetItems = scrollsToBottomOnSetItems
+  }
 
   public mutating func scrollTo(edge: Edge, animated: Bool = true) {
     self.edge = edge

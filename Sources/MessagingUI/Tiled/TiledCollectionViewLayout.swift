@@ -239,7 +239,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       height: itemHeights[index]
     )
   }
-
+  
   /// Binary search to find the first item that could be visible in the rect.
   ///
   /// Finds the smallest index where the item's bottom edge >= rect.minY.
