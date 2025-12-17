@@ -5,6 +5,7 @@
 //  Created by Hiroshi Kimura on 2025/12/10.
 //
 
+import DequeModule
 import SwiftUI
 import UIKit
 
@@ -74,7 +75,7 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   private let tiledLayout: TiledCollectionViewLayout = .init()
   private var collectionView: UICollectionView!
 
-  private var items: [Item] = []
+  private var items: Deque<Item> = []
   private let cellBuilder: (Item, CellState) -> Cell
 
   /// prototype cell for size measurement
@@ -92,8 +93,14 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
 
+  /// Spring animator for smooth scroll animations
+  private var springAnimator: SpringScrollAnimator?
+
   /// Auto-scroll to bottom on append
   var autoScrollsToBottomOnAppend: Bool = false
+
+  /// Scroll to bottom on setItems (initial load)
+  var scrollsToBottomOnSetItems: Bool = false
 
   /// Scroll geometry change callback
   var onScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
@@ -110,6 +117,8 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
   /// Per-item cell state storage
   private var stateMap: [Item.ID: CellState] = [:]
+  
+  private var pendingActionsOnLayoutSubviews: [() -> Void] = []
 
   public typealias DataSource = ListDataSource<Item>
 
@@ -201,14 +210,36 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
     }
     appliedCursor = pendingChanges.count
   }
+  
+  public override func layoutSubviews() {
+    super.layoutSubviews()
+    
+    // Execute any pending actions after layout
+    let actions = pendingActionsOnLayoutSubviews
+    pendingActionsOnLayoutSubviews.removeAll()
+    DispatchQueue.main.async {
+      for action in actions {
+        action()
+      }
+    }
+
+  }
 
   private func applyChange(_ change: ListDataSource<Item>.Change, from dataSource: ListDataSource<Item>) {
     switch change {
     case .setItems:
       tiledLayout.clear()
-      items = Array(dataSource.items)
+      items = dataSource.items
       tiledLayout.appendItems(count: items.count, startingIndex: 0)
       collectionView.reloadData()
+
+      pendingActionsOnLayoutSubviews.append { [weak self, scrollsToBottomOnSetItems] in
+        guard let self else { return }
+        
+        if scrollsToBottomOnSetItems {
+          scrollTo(edge: .bottom, animated: false)
+        }
+      }
 
     case .prepend(let ids):
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
@@ -224,7 +255,7 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       collectionView.reloadData()
 
       if autoScrollsToBottomOnAppend {
-        scrollToBottom(animated: true)
+        scrollTo(edge: .bottom, animated: true)
       }
 
     case .insert(let index, let ids):
@@ -324,36 +355,42 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
 
     guard let edge = position.edge else { return }
 
+    scrollTo(edge: edge, animated: position.animated)
+  }
+  
+  private func scrollTo(edge: TiledScrollPosition.Edge, animated: Bool) {
+    // Cancel any existing animation
+    springAnimator?.stop(finished: false)
+    springAnimator = nil
+
     // Derive content bounds from adjustedContentInset
     // (adjustedContentInset includes contentInset + safe area + keyboard adjustments)
     let inset = collectionView.adjustedContentInset
     let contentTop = -inset.top
-    let contentBottom = collectionView.contentSize.height + inset.bottom
+    let contentBottom = max(
+      contentTop,
+      collectionView.contentSize.height - collectionView.bounds.height + inset.bottom
+    )
 
-    let boundsWidth = collectionView.bounds.width
-
-    let targetRect: CGRect
+    let targetOffsetY: CGFloat
     switch edge {
     case .top:
-      targetRect = CGRect(x: 0, y: contentTop, width: boundsWidth, height: 1)
+      targetOffsetY = contentTop
     case .bottom:
-      targetRect = CGRect(x: 0, y: contentBottom - 1, width: boundsWidth, height: 1)
+      targetOffsetY = contentBottom
     }
 
-    collectionView.scrollRectToVisible(targetRect, animated: position.animated)
+    if animated {
+      // Use spring animation (one-shot, self-retaining during animation)
+      let animator = SpringScrollAnimator(spring: .smooth)
+      springAnimator = animator
+      animator.animate(scrollView: collectionView, to: targetOffsetY)
+    } else {
+      collectionView.contentOffset.y = targetOffsetY
+      CATransaction.flush()
+    }
+
     collectionView.flashScrollIndicators()
-  }
-
-  private func scrollToBottom(animated: Bool) {
-    collectionView.layoutIfNeeded()
-    guard items.count > 0 else { return }
-
-    let inset = collectionView.adjustedContentInset
-    let contentBottom = collectionView.contentSize.height + inset.bottom
-    let boundsWidth = collectionView.bounds.width
-    let targetRect = CGRect(x: 0, y: contentBottom - 1, width: boundsWidth, height: 1)
-
-    collectionView.scrollRectToVisible(targetRect, animated: animated)
   }
 
   // MARK: - Cell State Management
@@ -560,13 +597,13 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: UIViewRepre
 
   public func makeUIView(context: Context) -> _TiledView<Item, Cell> {
     let view = _TiledView(cellBuilder: cellBuilder, onPrepend: onPrepend)
-    view.applyDataSource(dataSource)
-    view.onScrollGeometryChange = onScrollGeometryChange
+    updateUIView(view, context: context)
     return view
   }
 
   public func updateUIView(_ uiView: _TiledView<Item, Cell>, context: Context) {
     uiView.autoScrollsToBottomOnAppend = scrollPosition.autoScrollsToBottomOnAppend
+    uiView.scrollsToBottomOnSetItems = scrollPosition.scrollsToBottomOnSetItems
     uiView.onScrollGeometryChange = onScrollGeometryChange
     uiView.additionalContentInset = additionalContentInset
     uiView.applyDataSource(dataSource)

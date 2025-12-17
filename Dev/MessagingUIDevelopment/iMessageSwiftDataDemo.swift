@@ -309,7 +309,10 @@ struct iMessageSwiftDataDemo: View {
   @Environment(\.modelContext) private var modelContext
   @State private var store: ChatStore?
   @State private var inputText = ""
-  @State private var scrollPosition = TiledScrollPosition()
+  @State private var scrollPosition = TiledScrollPosition(
+    autoScrollsToBottomOnAppend: true,
+    scrollsToBottomOnSetItems: true
+  )
   @State private var scrollGeometry: TiledScrollGeometry?
 
   private var isNearBottom: Bool {
@@ -427,7 +430,6 @@ struct iMessageSwiftDataDemo: View {
       if store == nil {
         store = ChatStore(modelContext: modelContext)
         store?.loadInitial()
-        scrollPosition.autoScrollsToBottomOnAppend = true
       }
     }
   }
