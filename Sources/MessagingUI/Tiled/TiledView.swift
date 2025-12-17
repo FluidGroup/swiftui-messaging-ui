@@ -359,12 +359,14 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
   }
   
   private func scrollTo(edge: TiledScrollPosition.Edge, animated: Bool) {
+
+    collectionView.layoutIfNeeded()
+
     // Cancel any existing animation
     springAnimator?.stop(finished: false)
     springAnimator = nil
 
     // Derive content bounds from adjustedContentInset
-    // (adjustedContentInset includes contentInset + safe area + keyboard adjustments)
     let inset = collectionView.adjustedContentInset
     let contentTop = -inset.top
     let contentBottom = max(
@@ -380,14 +382,14 @@ public final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIVie
       targetOffsetY = contentBottom
     }
 
+    print("[scrollTo] edge: \(edge), inset: \(inset), contentSize: \(collectionView.contentSize), bounds: \(collectionView.bounds), contentTop: \(contentTop), contentBottom: \(contentBottom), targetOffsetY: \(targetOffsetY)")
+
     if animated {
-      // Use spring animation (one-shot, self-retaining during animation)
       let animator = SpringScrollAnimator(spring: .smooth)
       springAnimator = animator
       animator.animate(scrollView: collectionView, to: targetOffsetY)
     } else {
       collectionView.contentOffset.y = targetOffsetY
-      CATransaction.flush()
     }
 
     collectionView.flashScrollIndicators()
