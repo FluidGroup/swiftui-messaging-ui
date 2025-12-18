@@ -381,14 +381,30 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
       items.insert(contentsOf: newItems, at: 0)
       tiledLayout.prependItems(count: newItems.count)
-      collectionView.reloadData()
+
+      let indexPaths = (0..<newItems.count).map { IndexPath(item: $0, section: 0) }
+
+      UIView.performWithoutAnimation {
+        collectionView.performBatchUpdates({
+          collectionView.insertItems(at: indexPaths)
+        }, completion: nil)
+      }
 
     case .append(let ids):
       let startingIndex = items.count
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
       items.append(contentsOf: newItems)
       tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
-      collectionView.reloadData()
+
+      let indexPaths = (startingIndex..<startingIndex + newItems.count).map {
+        IndexPath(item: $0, section: 0)
+      }
+
+      UIView.performWithoutAnimation {
+        collectionView.performBatchUpdates({
+          collectionView.insertItems(at: indexPaths)
+        }, completion: nil)
+      }
 
       if autoScrollsToBottomOnAppend {
         scrollTo(edge: .bottom, animated: true)
@@ -400,7 +416,16 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
         items.insert(item, at: index + offset)
       }
       tiledLayout.insertItems(count: newItems.count, at: index)
-      collectionView.reloadData()
+
+      let indexPaths = (index..<index + newItems.count).map {
+        IndexPath(item: $0, section: 0)
+      }
+
+      UIView.performWithoutAnimation {
+        collectionView.performBatchUpdates({
+          collectionView.insertItems(at: indexPaths)
+        }, completion: nil)
+      }
 
     case .update(let ids):
       for id in ids {
@@ -409,7 +434,19 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
           items[index] = newItem
         }
       }
-      collectionView.reloadData()
+
+      let indexPaths = ids.compactMap { id -> IndexPath? in
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
+        return IndexPath(item: index, section: 0)
+      }
+
+      guard !indexPaths.isEmpty else { return }
+
+      UIView.performWithoutAnimation {
+        collectionView.performBatchUpdates({
+          collectionView.reloadItems(at: indexPaths)
+        }, completion: nil)
+      }
 
     case .remove(let ids):
       let idsSet = Set(ids)
@@ -419,7 +456,14 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
         .map { $0.offset }
       items.removeAll { idsSet.contains($0.id) }
       tiledLayout.removeItems(at: indicesToRemove)
-      collectionView.reloadData()
+
+      let indexPaths = indicesToRemove.map { IndexPath(item: $0, section: 0) }
+
+      UIView.performWithoutAnimation {
+        collectionView.performBatchUpdates({
+          collectionView.deleteItems(at: indexPaths)
+        }, completion: nil)
+      }
     }
   }
 
