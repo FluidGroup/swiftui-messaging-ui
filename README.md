@@ -34,6 +34,7 @@ This library takes a different approach: a **virtual content layout** with a 100
 - **UICollectionView Performance** - Native recycling with SwiftUI cell rendering
 - **Self-Sizing Cells** - Automatic height calculation for variable content
 - **Per-Cell State** - Manage UI state (expansion, selection) separately from data
+- **Keyboard & Safe Area Handling** - Automatic content inset adjustment for keyboard and safe areas
 
 ## Requirements
 
@@ -84,14 +85,14 @@ struct ChatView: View {
         MessageBubble(message: message)
       }
     )
-    .onAppear {
-      dataSource.replace(with: initialMessages)
+    .task {
+      dataSource.apply(initialMessages)
     }
   }
 }
 ```
 
-### Loading Older Messages (Prepend)
+### Loading Older Messages
 
 ```swift
 TiledView(
@@ -99,8 +100,12 @@ TiledView(
   scrollPosition: $scrollPosition,
   onPrepend: {
     // Called when user scrolls near the top
-    let olderMessages = await loadOlderMessages()
+    let olderMessages = await fetchOlderMessages()
     dataSource.prepend(olderMessages)
+
+    // Or if you have the complete list, use apply() - it auto-detects changes
+    // let allMessages = await fetchAllMessages()
+    // dataSource.apply(allMessages)
   },
   cellBuilder: { message, _ in
     MessageBubble(message: message)
@@ -124,54 +129,3 @@ Button("Scroll to Top") {
 }
 ```
 
-### Using CellState
-
-CellState allows you to manage per-cell UI state (like expansion, selection) separately from your data model.
-
-```swift
-// 1. Define a state key
-enum IsExpandedKey: CustomStateKey {
-  typealias Value = Bool
-  static var defaultValue: Bool { false }
-}
-
-// 2. Add convenience accessor
-extension CellState {
-  var isExpanded: Bool {
-    get { self[IsExpandedKey.self] }
-    set { self[IsExpandedKey.self] = newValue }
-  }
-}
-
-// 3. Use in cell builder
-TiledView(
-  dataSource: dataSource,
-  scrollPosition: $scrollPosition,
-  cellBuilder: { message, state in
-    MessageBubble(
-      message: message,
-      isExpanded: state.isExpanded
-    )
-  }
-)
-```
-
-### ListDataSource Operations
-
-**Recommended:** Use `apply(_:)` for most cases. It automatically detects the appropriate operation (replace, prepend, append, insert, update, remove).
-
-```swift
-var dataSource = ListDataSource<Message>()
-
-// Recommended: Auto-detect changes from new array
-dataSource.apply(newMessagesArray)
-
-// Manual operations (when you know the exact change type)
-dataSource.replace(with: messages)       // Replace all items
-dataSource.prepend(olderMessages)        // Add to beginning
-dataSource.append(newMessages)           // Add to end
-dataSource.insert(messages, at: 5)       // Insert at position
-dataSource.updateExisting([updated])     // Update existing items
-dataSource.remove(id: messageId)         // Remove by ID
-dataSource.remove(ids: [id1, id2, id3])  // Remove multiple
-```
