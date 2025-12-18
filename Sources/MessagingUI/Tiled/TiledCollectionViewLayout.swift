@@ -190,6 +190,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       itemYPositions.append(y)
       itemHeights.append(height)
     }
+
+    logCapacity(operation: "appendItems")
   }
 
   public func prependItems(count: Int) {
@@ -205,6 +207,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
     // Invalidate cache since IndexPaths shifted
     invalidateAttributesCache()
+
+    logCapacity(operation: "prependItems")
   }
 
   public func insertItems(count: Int, at index: Int) {
@@ -340,6 +344,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
           let lastY = itemYPositions.last,
           let lastHeight = itemHeights.last else { return nil }
     return (firstY, lastY + lastHeight)
+  }
+
+  private func logCapacity(operation: String) {
+    guard let bounds = contentBounds() else { return }
+
+    let topPercent = (bounds.top / anchorY) * 100
+    let bottomPercent = ((virtualContentHeight - bounds.bottom) / (virtualContentHeight - anchorY)) * 100
+
+    Log.layout.debug("\(operation): top=\(topPercent, format: .fixed(precision: 1))%, bottom=\(bottomPercent, format: .fixed(precision: 1))%")
   }
 
   // MARK: - Debug Info

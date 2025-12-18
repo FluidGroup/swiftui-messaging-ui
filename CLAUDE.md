@@ -1,1 +1,1 @@
-- Always build for iOS
+- Always build for iOS using xcodebuild
