@@ -145,6 +145,12 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   /// Background tap callback (for dismissing keyboard, etc.)
   var onTapBackground: (() -> Void)?
 
+  /// Callback when dragging into bottom safe area (additionalContentInset.bottom region)
+  var onDragIntoBottomSafeArea: (() -> Void)?
+
+  /// Track if already triggered to avoid multiple calls per drag session
+  private var hasDraggedIntoBottomSafeArea: Bool = false
+
   /// Additional content inset for keyboard, headers, footers, etc.
   var additionalContentInset: EdgeInsets = .init() {
     didSet {
@@ -290,7 +296,6 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   }
 
   @objc private func handleTapBackground(_ gesture: UITapGestureRecognizer) {
-    let location = gesture.location(in: collectionView)
     onTapBackground?()
   }
  
@@ -452,7 +457,7 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   // MARK: - UIScrollViewDelegate
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
-    
+
     let offsetY = scrollView.contentOffset.y + scrollView.contentInset.top
 
     if offsetY <= prependThreshold {
@@ -467,7 +472,20 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
       isPrependTriggered = false
     }
 
+    // Check if dragging into bottom safe area
+    if scrollView.isDragging {
+      checkDragIntoBottomSafeArea(scrollView)
+    }
+
     notifyScrollGeometry()
+  }
+
+  func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+    hasDraggedIntoBottomSafeArea = false
+  }
+
+  func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+    hasDraggedIntoBottomSafeArea = false
   }
 
   private func notifyScrollGeometry() {
@@ -479,6 +497,27 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
       contentInset: collectionView.adjustedContentInset
     )
     onTiledScrollGeometryChange(geometry)
+  }
+
+  private func checkDragIntoBottomSafeArea(_ scrollView: UIScrollView) {
+    guard let onDragIntoBottomSafeArea else { return }
+
+    let bottomSafeAreaHeight = tiledLayout.additionalContentInset.bottom
+    guard bottomSafeAreaHeight > 0 else { return }
+
+    let panGesture = scrollView.panGestureRecognizer
+    let touchLocation = panGesture.location(in: self)
+    let bottomSafeAreaTop = bounds.height - bottomSafeAreaHeight
+
+    if touchLocation.y > bottomSafeAreaTop {
+      if !hasDraggedIntoBottomSafeArea {
+        hasDraggedIntoBottomSafeArea = true
+        onDragIntoBottomSafeArea()
+      }
+    } else {
+      // Reset when exiting the area, allowing re-trigger on next entry
+      hasDraggedIntoBottomSafeArea = false
+    }
   }
 
   // MARK: - Scroll Position
@@ -611,6 +650,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
   let onPrepend: (@MainActor () async throws -> Void)?
   let onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   let onTapBackground: (() -> Void)?
+  let onDragIntoBottomSafeArea: (() -> Void)?
   let additionalContentInset: EdgeInsets
   let swiftUIWorldSafeAreaInset: EdgeInsets
   @Binding var scrollPosition: TiledScrollPosition
@@ -622,6 +662,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     onPrepend: (@MainActor () async throws -> Void)? = nil,
     onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)? = nil,
     onTapBackground: (() -> Void)? = nil,
+    onDragIntoBottomSafeArea: (() -> Void)? = nil,
     additionalContentInset: EdgeInsets = .init(),
     swiftUIWorldSafeAreaInset: EdgeInsets = .init(),
     @ViewBuilder cellBuilder: @escaping (Item, CellState) -> Cell
@@ -632,6 +673,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     self.onPrepend = onPrepend
     self.onTiledScrollGeometryChange = onTiledScrollGeometryChange
     self.onTapBackground = onTapBackground
+    self.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
     self.additionalContentInset = additionalContentInset
     self.swiftUIWorldSafeAreaInset = swiftUIWorldSafeAreaInset
     self.cellBuilder = cellBuilder
@@ -666,7 +708,8 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     }
     
     uiView.onTapBackground = onTapBackground
-  
+    uiView.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
+
     uiView.applyDataSource(dataSource)
     uiView.applyScrollPosition(scrollPosition)
 
@@ -820,6 +863,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
   let onPrepend: (@MainActor () async throws -> Void)?
   var onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   var onTapBackground: (() -> Void)?
+  var onDragIntoBottomSafeArea: (() -> Void)?
   var additionalContentInset: EdgeInsets = .init()
   @Binding var scrollPosition: TiledScrollPosition
 
@@ -846,6 +890,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
         onPrepend: onPrepend,
         onTiledScrollGeometryChange: onTiledScrollGeometryChange,
         onTapBackground: onTapBackground,
+        onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
         additionalContentInset: additionalContentInset,
         swiftUIWorldSafeAreaInset: proxy.safeAreaInsets,
         cellBuilder: cellBuilder
@@ -891,6 +936,24 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
     _ action: @escaping () -> Void
   ) -> Self {
     self.onTapBackground = action
+    return self
+  }
+
+  /// Sets a callback for when dragging into the bottom safe area.
+  ///
+  /// Use this to dismiss the keyboard when the user drags into the bottom safe area
+  /// (the region covered by `safeAreaInsets.bottom`, typically the keyboard).
+  ///
+  /// ```swift
+  /// TiledView(...)
+  ///   .onDragIntoBottomSafeArea {
+  ///     UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+  ///   }
+  /// ```
+  public consuming func onDragIntoBottomSafeArea(
+    _ action: @escaping () -> Void
+  ) -> Self {
+    self.onDragIntoBottomSafeArea = action
     return self
   }
 }
