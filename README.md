@@ -4,6 +4,10 @@
 
 A high-performance SwiftUI list component built on UICollectionView, designed for messaging interfaces and infinite scrolling lists.
 
+| Auto Scrolling | Dynamically prepending items |
+| :--- | :--- |
+| ![video2](https://github.com/user-attachments/assets/e21ff76e-5b39-45b2-b13b-c608d15414e7)| ![video1](https://github.com/user-attachments/assets/5325bbd0-38bc-4504-868d-e379b2ba3f2f) |
+
 ## Features
 
 - **TiledView**: High-performance list view using UICollectionView with custom layout
