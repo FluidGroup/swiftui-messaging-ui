@@ -1,5 +1,7 @@
 # swiftui-messaging-ui
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/FluidGroup/swiftui-messaging-ui)
+
 A high-performance SwiftUI list component built on UICollectionView, designed for messaging interfaces and infinite scrolling lists.
 
 ## Features
