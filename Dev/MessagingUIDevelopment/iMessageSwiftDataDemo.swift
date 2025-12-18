@@ -148,12 +148,32 @@ final class ChatStore {
   private let modelContext: ModelContext
   private(set) var dataSource = ListDataSource<ChatMessageItem>()
   private(set) var hasMore = true
+  var isAutoReceiveEnabled = false
 
   private var loadedCount = 0
   private let pageSize = 20
+  private var autoReceiveTask: Task<Void, Never>?
 
   init(modelContext: ModelContext) {
     self.modelContext = modelContext
+  }
+
+  func startAutoReceive() {
+    guard autoReceiveTask == nil else { return }
+    isAutoReceiveEnabled = true
+    autoReceiveTask = Task { @MainActor in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(Double.random(in: 1.5...3.5)))
+        guard !Task.isCancelled else { break }
+        simulateIncomingMessage()
+      }
+    }
+  }
+
+  func stopAutoReceive() {
+    isAutoReceiveEnabled = false
+    autoReceiveTask?.cancel()
+    autoReceiveTask = nil
   }
 
   func loadInitial() {
@@ -249,6 +269,10 @@ final class ChatStore {
     "That sounds great!",
     "Let me know when you're free",
     "Sure thing!",
+    "I was thinking about what you said yesterday, and I think you're absolutely right. We should definitely go ahead with that plan. Let me know what time works best for you and I'll arrange everything.",
+    "Oh by the way, I ran into Sarah at the grocery store today and she was asking about you! She said she hasn't seen you in ages and wanted to catch up sometime. Should I give her your number?",
+    "Just finished watching that movie you recommended. Wow, what an incredible story! The plot twist at the end completely caught me off guard. Thanks for the suggestion!",
+    "Hey, quick question - do you remember the name of that restaurant we went to last month? The one with the amazing pasta? I want to take my parents there this weekend.",
   ]
 
   private static let outgoingReplies = [
@@ -271,12 +295,12 @@ final class ChatStore {
 
   func generateConversation(count: Int) {
     for i in 0..<count {
-      let isSentByMe = i % 2 == 1
+      let isSentByMe = Bool.random()
       let text: String
       if isSentByMe {
-        text = Self.outgoingReplies[i % Self.outgoingReplies.count]
+        text = Self.outgoingReplies.randomElement() ?? "OK"
       } else {
-        text = Self.incomingMessages[i % Self.incomingMessages.count]
+        text = Self.incomingMessages.randomElement() ?? "Hello!"
       }
 
       let message = ChatMessageModel(
@@ -344,6 +368,20 @@ struct iMessageSwiftDataDemo: View {
             Label("Receive Message", systemImage: "arrow.down.message")
           }
 
+          Button {
+            if store?.isAutoReceiveEnabled == true {
+              store?.stopAutoReceive()
+            } else {
+              store?.startAutoReceive()
+            }
+          } label: {
+            if store?.isAutoReceiveEnabled == true {
+              Label("Stop Auto Receive", systemImage: "stop.circle")
+            } else {
+              Label("Start Auto Receive", systemImage: "play.circle")
+            }
+          }
+
           Divider()
 
           Button {
@@ -383,14 +421,12 @@ struct iMessageSwiftDataDemo: View {
   }
   
   @ViewBuilder
-  private var inputView: some View {
-    Divider()
-    
+  private var inputView: some View {    
     // Input bar
-    HStack(spacing: 12) {
+    let content = HStack(spacing: 12) {
       TextField("Message", text: $inputText)
         .focused($isInputFocused)
-        .textFieldStyle(.roundedBorder)
+        .textFieldStyle(.plain)
         .onSubmit {
           sendMessage()
         }
@@ -406,7 +442,16 @@ struct iMessageSwiftDataDemo: View {
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
-    .background(.bar)
+   
+    if #available(iOS 26, *) {
+      content
+        .glassEffect(.regular.interactive().tint(.clear))      
+        .padding()
+    } else {
+      content
+        .background(RoundedRectangle(cornerRadius: 20).foregroundStyle(.bar))
+        .padding()
+    }
   }
   
   private func loadedContent(store: ChatStore) -> some View {
@@ -428,11 +473,16 @@ struct iMessageSwiftDataDemo: View {
             }
           }
       }
+      .onDragIntoBottomSafeArea {        
+        isInputFocused = false
+      }
       .onTapBackground {
         isInputFocused = false
       }
       .onTiledScrollGeometryChange { geometry in
         scrollGeometry = geometry
+        
+        scrollPosition.autoScrollsToBottomOnAppend = isNearBottom
       }
 
       // Scroll to bottom button
@@ -450,7 +500,7 @@ struct iMessageSwiftDataDemo: View {
       }
       
     }
-    .safeAreaInset(edge: .bottom, spacing: 0, content: {
+    .safeAreaInset(edge: .bottom, spacing: 0, content: {      
       inputView
         .onGeometryChange(for: CGFloat.self) { proxy in
           print(proxy.size)
