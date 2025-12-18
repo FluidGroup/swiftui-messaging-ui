@@ -137,7 +137,7 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   var autoScrollsToBottomOnAppend: Bool = false
 
   /// Scroll to bottom on setItems (initial load)
-  var scrollsToBottomOnSetItems: Bool = false
+  var scrollsToBottomOnReplace: Bool = false
 
   /// Scroll geometry change callback
   var onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
@@ -363,16 +363,16 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
 
   private func applyChange(_ change: ListDataSource<Item>.Change, from dataSource: ListDataSource<Item>) {
     switch change {
-    case .setItems:
+    case .replace:
       tiledLayout.clear()
       items = dataSource.items
       tiledLayout.appendItems(count: items.count, startingIndex: 0)
       collectionView.reloadData()
 
-      pendingActionsOnLayoutSubviews.append { [weak self, scrollsToBottomOnSetItems] in
+      pendingActionsOnLayoutSubviews.append { [weak self, scrollsToBottomOnReplace] in
         guard let self else { return }
         
-        if scrollsToBottomOnSetItems {
+        if scrollsToBottomOnReplace {
           scrollTo(edge: .bottom, animated: false)
         }
       }
@@ -698,7 +698,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     }
     
     uiView.autoScrollsToBottomOnAppend = scrollPosition.autoScrollsToBottomOnAppend
-    uiView.scrollsToBottomOnSetItems = scrollPosition.scrollsToBottomOnSetItems
+    uiView.scrollsToBottomOnReplace = scrollPosition.scrollsToBottomOnReplace
     uiView.onTiledScrollGeometryChange = onTiledScrollGeometryChange.map { perform in
       return { arg in
         withPrerender {
@@ -762,7 +762,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
 ///       MessageBubbleView(message: message)
 ///     }
 ///     .onAppear {
-///       dataSource.setItems(initialMessages)
+///       dataSource.replace(with: initialMessages)
 ///     }
 ///   }
 /// }
@@ -770,16 +770,21 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
 ///
 /// ## ListDataSource
 ///
-/// Use ``ListDataSource`` to manage items. It tracks changes for efficient updates:
+/// Use ``ListDataSource`` to manage items. It tracks changes for efficient updates.
+///
+/// **Recommended:** Use ``ListDataSource/apply(_:)`` for most cases.
+/// It automatically detects the appropriate operation.
 ///
 /// ```swift
-/// dataSource.setItems([...])        // Replace all items
+/// dataSource.apply([...])           // Recommended: Auto-detect changes
+///
+/// // Manual operations (when you know the exact change type)
+/// dataSource.replace(with: [...])   // Replace all items
 /// dataSource.prepend([...])         // Add to beginning (older messages)
 /// dataSource.append([...])          // Add to end (newer messages)
 /// dataSource.insert([...], at: 5)   // Insert at specific index
-/// dataSource.update([...])          // Update existing items
+/// dataSource.updateExisting([...])  // Update existing items
 /// dataSource.remove(ids: [...])     // Remove by IDs
-/// dataSource.applyDiff(from: [...]) // Auto-detect changes
 /// ```
 ///
 /// ## TiledScrollPosition

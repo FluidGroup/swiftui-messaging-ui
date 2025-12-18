@@ -17,14 +17,14 @@ public struct TiledScrollPosition: Equatable, Sendable {
   public var autoScrollsToBottomOnAppend: Bool
 
   /// Scroll to bottom when items are set (initial load)
-  public var scrollsToBottomOnSetItems: Bool
+  public var scrollsToBottomOnReplace: Bool
 
   public init(
     autoScrollsToBottomOnAppend: Bool = false,
-    scrollsToBottomOnSetItems: Bool = false
+    scrollsToBottomOnReplace: Bool = false
   ) {
     self.autoScrollsToBottomOnAppend = autoScrollsToBottomOnAppend
-    self.scrollsToBottomOnSetItems = scrollsToBottomOnSetItems
+    self.scrollsToBottomOnReplace = scrollsToBottomOnReplace
   }
 
   public mutating func scrollTo(edge: Edge, animated: Bool = true) {

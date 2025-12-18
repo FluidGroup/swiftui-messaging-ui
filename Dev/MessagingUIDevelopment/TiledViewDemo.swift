@@ -43,7 +43,7 @@ struct ListDemoControlPanel: View {
           if var item = dataSource.items.first(where: { $0.id == 5 }) {
             item.isExpanded.toggle()
             item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
-            dataSource.update([item])
+            dataSource.updateExisting([item])
           }
         }
         .buttonStyle(.bordered)
@@ -93,7 +93,7 @@ struct ListDemoControlPanel: View {
           nextPrependId = -1
           nextAppendId = 5
           let newItems = generateSampleMessages(count: 5, startId: 0)
-          dataSource.setItems(newItems)
+          dataSource.replace(with:newItems)
         }
         .buttonStyle(.borderedProminent)
 
@@ -221,7 +221,7 @@ struct BookTiledView: View {
             if var item = dataSource.items.first(where: { $0.id == 5 }) {
               item.isExpanded.toggle()
               item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
-              dataSource.update([item])
+              dataSource.updateExisting([item])
             }
           } label: {
             Label("Update ID:5", systemImage: "pencil")
@@ -239,7 +239,7 @@ struct BookTiledView: View {
             nextPrependId = -1
             nextAppendId = 5
             let newItems = generateSampleMessages(count: 5, startId: 0)
-            dataSource.setItems(newItems)
+            dataSource.replace(with:newItems)
           } label: {
             Label("Reset", systemImage: "arrow.counterclockwise")
           }
