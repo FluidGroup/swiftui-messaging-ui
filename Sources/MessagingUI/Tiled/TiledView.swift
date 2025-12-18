@@ -473,7 +473,7 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     }
 
     // Check if dragging into bottom safe area
-    if scrollView.isDragging {
+    if scrollView.isTracking && scrollView.isDragging {
       checkDragIntoBottomSafeArea(scrollView)
     }
 
