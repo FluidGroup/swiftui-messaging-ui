@@ -4,7 +4,8 @@
       "mcp__XcodeBuildMCP__discover_projs",
       "mcp__sosumi__searchAppleDocumentation",
       "WebFetch(domain:medium.com)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(xargs:*)"
     ]
   }
 }

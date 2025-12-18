@@ -21,6 +21,15 @@ final class SpringAnimator {
   /// Handler called on each frame with the current animated value
   typealias OnUpdate = (_ value: Double) -> Void
 
+  /// Result from target provider closure
+  struct TargetResult {
+    let target: Double
+    let shouldStop: Bool
+  }
+
+  /// Provider closure called every frame to get dynamic target
+  typealias TargetProvider = () -> TargetResult
+
   // MARK: - Properties
 
   /// The display link for frame-synchronized updates
@@ -49,6 +58,9 @@ final class SpringAnimator {
 
   /// Update handler called on each frame
   private var onUpdate: OnUpdate?
+
+  /// Target provider called every frame for dynamic target
+  private var targetProvider: TargetProvider?
 
   /// Settling threshold - when value is within this range of target, consider settled
   var settlingThreshold: Double = 0.5
@@ -94,6 +106,45 @@ final class SpringAnimator {
       self.currentValue = from
     }
     self.targetValue = target
+    self.targetProvider = nil
+    self.currentVelocity = initialVelocity
+    self.onUpdate = onUpdate
+    self.completion = completion
+    self.isFirstFrame = true
+
+    // Retain self during animation
+    self.retainedSelf = self
+
+    // Create and start display link
+    let displayLink = CADisplayLink(target: self, selector: #selector(handleDisplayLink(_:)))
+    displayLink.add(to: .main, forMode: .common)
+    self.displayLink = displayLink
+  }
+
+  /// Starts animating with a dynamic target that's evaluated every frame.
+  /// - Parameters:
+  ///   - from: The starting value. If nil, continues from current value.
+  ///   - initialVelocity: Optional initial velocity (units per second)
+  ///   - targetProvider: Called every frame to get current target and shouldStop flag
+  ///   - onUpdate: Called on each frame with the current value
+  ///   - completion: Called when animation completes or is cancelled
+  func animate(
+    from: Double? = nil,
+    initialVelocity: Double = 0,
+    targetProvider: @escaping TargetProvider,
+    onUpdate: @escaping OnUpdate,
+    completion: Completion? = nil
+  ) {
+    // Stop any existing animation
+    stop(finished: false)
+
+    if let from {
+      self.currentValue = from
+    }
+    // Get initial target
+    let initialResult = targetProvider()
+    self.targetValue = initialResult.target
+    self.targetProvider = targetProvider
     self.currentVelocity = initialVelocity
     self.onUpdate = onUpdate
     self.completion = completion
@@ -117,6 +168,7 @@ final class SpringAnimator {
     let completionHandler = completion
     completion = nil
     onUpdate = nil
+    targetProvider = nil
 
     // Release self-retention
     retainedSelf = nil
@@ -144,6 +196,22 @@ final class SpringAnimator {
 
     // Clamp delta time to avoid large jumps (e.g., when app resumes from background)
     let clampedDeltaTime = min(deltaTime, 1.0 / 30.0)
+
+    // Update target from provider if available
+    var providerShouldStop = false
+    if let targetProvider {
+      let result = targetProvider()
+      targetValue = result.target
+      providerShouldStop = result.shouldStop
+    }
+
+    // Check if provider indicates immediate stop (already at destination)
+    if providerShouldStop {
+      currentValue = targetValue
+      onUpdate?(currentValue)
+      stop(finished: true)
+      return
+    }
 
     // Update spring values
     spring.update(

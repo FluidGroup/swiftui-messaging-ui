@@ -500,28 +500,49 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     springAnimator?.stop(finished: false)
     springAnimator = nil
 
-    // Derive content bounds from adjustedContentInset
-    let inset = collectionView.adjustedContentInset
-    let contentTop = -inset.top
-    let contentBottom = max(
-      contentTop,
-      collectionView.contentSize.height - collectionView.bounds.height + inset.bottom
-    )
-
-    let targetOffsetY: CGFloat
-    switch edge {
-    case .top:
-      targetOffsetY = contentTop
-    case .bottom:
-      targetOffsetY = contentBottom
-    }
+    // Stop any existing deceleration
+    collectionView.setContentOffset(collectionView.contentOffset, animated: false)
 
     if animated {
       let animator = SpringScrollAnimator(spring: .smooth)
       springAnimator = animator
-      animator.animate(scrollView: collectionView, to: targetOffsetY)
+
+      // Use dynamic target provider to adapt to contentInset changes mid-animation
+      animator.animate(scrollView: collectionView) { scrollView in
+        let inset = scrollView.adjustedContentInset
+        let contentTop = -inset.top
+        let contentBottom = max(
+          contentTop,
+          scrollView.contentSize.height - scrollView.bounds.height + inset.bottom
+        )
+
+        let target: CGFloat
+        switch edge {
+        case .top:
+          target = contentTop
+        case .bottom:
+          target = contentBottom
+        }
+
+        // Stop when distance to target is minimal (already at destination)
+        let shouldStop = abs(target - scrollView.contentOffset.y) < 0.5
+        return SpringScrollAnimator.TargetResult(target: target, shouldStop: shouldStop)
+      }
     } else {
-      collectionView.contentOffset.y = targetOffsetY
+      // Non-animated case: calculate target once and set immediately
+      let inset = collectionView.adjustedContentInset
+      let contentTop = -inset.top
+      let contentBottom = max(
+        contentTop,
+        collectionView.contentSize.height - collectionView.bounds.height + inset.bottom
+      )
+
+      switch edge {
+      case .top:
+        collectionView.contentOffset.y = contentTop
+      case .bottom:
+        collectionView.contentOffset.y = contentBottom
+      }
     }
 
     collectionView.flashScrollIndicators()

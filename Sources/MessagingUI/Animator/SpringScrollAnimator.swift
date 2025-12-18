@@ -39,6 +39,15 @@ final class SpringScrollAnimator {
   /// Completion handler called when animation finishes or is cancelled
   typealias Completion = (_ finished: Bool) -> Void
 
+  /// Result from target provider closure
+  struct TargetResult {
+    let target: CGFloat
+    let shouldStop: Bool
+  }
+
+  /// Provider closure called every frame to get dynamic target
+  typealias TargetProvider = (_ scrollView: UIScrollView) -> TargetResult
+
   // MARK: - Properties
 
   /// The underlying spring animator
@@ -95,6 +104,59 @@ final class SpringScrollAnimator {
       from: Double(scrollView.contentOffset.y),
       to: Double(targetOffsetY),
       initialVelocity: Double(initialVelocity),
+      onUpdate: { [weak self, weak scrollView] value in
+        guard let scrollView else {
+          self?.stop(finished: false)
+          return
+        }
+        var contentOffset = scrollView.contentOffset
+        contentOffset.y = CGFloat(value)
+        scrollView.contentOffset = contentOffset
+      },
+      completion: { [weak self] finished in
+        self?.handleAnimationCompletion(finished: finished)
+      }
+    )
+  }
+
+  /// Animates the scroll view's contentOffset.y with a dynamic target evaluated every frame.
+  /// - Parameters:
+  ///   - scrollView: The scroll view to animate
+  ///   - initialVelocity: Optional initial velocity (points per second)
+  ///   - targetProvider: Called every frame to get current target and shouldStop flag
+  ///   - completion: Called when animation completes or is cancelled
+  func animate(
+    scrollView: UIScrollView,
+    initialVelocity: CGFloat = 0,
+    targetProvider: @escaping TargetProvider,
+    completion: Completion? = nil
+  ) {
+    // Stop any existing animation
+    stop(finished: false)
+
+    self.scrollView = scrollView
+    self.completion = completion
+
+    // Retain self during animation
+    self.retainedSelf = self
+
+    // Setup gesture cancellation
+    setupGestureCancellation(for: scrollView)
+
+    // Start the animation with dynamic target provider
+    animator.animate(
+      from: Double(scrollView.contentOffset.y),
+      initialVelocity: Double(initialVelocity),
+      targetProvider: { [weak scrollView] in
+        guard let scrollView else {
+          return SpringAnimator.TargetResult(target: 0, shouldStop: true)
+        }
+        let result = targetProvider(scrollView)
+        return SpringAnimator.TargetResult(
+          target: Double(result.target),
+          shouldStop: result.shouldStop
+        )
+      },
       onUpdate: { [weak self, weak scrollView] value in
         guard let scrollView else {
           self?.stop(finished: false)
