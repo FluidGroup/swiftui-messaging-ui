@@ -42,8 +42,6 @@ This library takes a different approach: a **virtual content layout** with a 100
 - Swift 6.0+
 - Xcode 26.0+
 
-**Note**: This package is iOS-only and requires building with Xcode or xcodebuild.
-
 ## Installation
 
 ### Swift Package Manager
@@ -128,4 +126,3 @@ Button("Scroll to Top") {
   scrollPosition.scrollTo(edge: .top, animated: false)
 }
 ```
-
