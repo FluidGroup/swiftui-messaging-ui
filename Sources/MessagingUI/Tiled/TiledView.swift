@@ -8,6 +8,7 @@
 import DequeModule
 import SwiftUI
 import UIKit
+import WithPrerender
 
 // MARK: - TiledViewCell
 
@@ -126,6 +127,10 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   }
 
   private func applyContentInsets() {
+    // Capture old state to preserve scroll position
+    let oldAdjustedInset = collectionView.adjustedContentInset
+    let oldContentOffset = collectionView.contentOffset
+
     let combined = EdgeInsets(
       top: additionalContentInset.top + swiftUIWorldSafeAreaInset.top,
       leading: additionalContentInset.leading + swiftUIWorldSafeAreaInset.leading,
@@ -139,8 +144,63 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     uiEdgeInsets.right -= safeAreaInsets.right
 
     tiledLayout.additionalContentInset = uiEdgeInsets
-    tiledLayout.invalidateLayout()
     collectionView.verticalScrollIndicatorInsets.bottom = uiEdgeInsets.bottom
+    tiledLayout.invalidateLayout()
+
+    // Force layout to compute new adjustedContentInset
+    collectionView.layoutIfNeeded()
+
+    // handing contentOffset adjustment
+    do {
+      let newAdjustedInset = collectionView.adjustedContentInset
+      let deltaBottom = newAdjustedInset.bottom - oldAdjustedInset.bottom
+
+      guard deltaBottom != 0 else { return }
+
+      // Check if we were at the bottom before the change
+      let oldMaxOffsetY = collectionView.contentSize.height - collectionView.bounds.height + oldAdjustedInset.bottom
+      let wasAtBottom = oldContentOffset.y >= oldMaxOffsetY - 1 // 1pt tolerance
+
+      Log.layout.debug("""
+      applyContentInsets:
+        oldBottom=\(oldAdjustedInset.bottom, format: .fixed(precision: 1))
+        newBottom=\(newAdjustedInset.bottom, format: .fixed(precision: 1))
+        delta=\(deltaBottom, format: .fixed(precision: 1))
+        oldOffset=\(oldContentOffset.y, format: .fixed(precision: 1))
+        currentOffset=\(self.collectionView.contentOffset.y, format: .fixed(precision: 1))
+        oldMaxOffsetY=\(oldMaxOffsetY, format: .fixed(precision: 1))
+        wasAtBottom=\(wasAtBottom)
+      """)
+
+      var offset = oldContentOffset
+
+      if wasAtBottom {
+        // Stay at the bottom
+        let newMaxOffsetY = collectionView.contentSize.height - collectionView.bounds.height + newAdjustedInset.bottom
+        offset.y = newMaxOffsetY
+      } else {
+        // Preserve visible position by adjusting offset
+        offset.y += deltaBottom
+
+        // Avoid overscroll
+        let minOffsetY = -newAdjustedInset.top
+        let maxOffsetY = collectionView.contentSize.height - collectionView.bounds.height + newAdjustedInset.bottom
+        offset.y = max(minOffsetY, min(maxOffsetY, offset.y))
+      }
+
+      Log.layout.debug("  targetOffset=\(offset.y, format: .fixed(precision: 1))")
+
+      UIView
+        .animate(
+          withDuration: 0.25,
+          delay: 0,
+          options: [
+            .init(rawValue: 7 /* undocumented */)
+          ]
+        ) {
+          self.collectionView.contentOffset = offset
+        }
+    }
   }
 
   private func convertToUIEdgeInsets(_ edgeInsets: EdgeInsets) -> UIEdgeInsets {
@@ -546,7 +606,14 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
   func updateUIView(_ uiView: _TiledView<Item, Cell>, context: Context) {
     uiView.autoScrollsToBottomOnAppend = scrollPosition.autoScrollsToBottomOnAppend
     uiView.scrollsToBottomOnSetItems = scrollPosition.scrollsToBottomOnSetItems
-    uiView.onTiledScrollGeometryChange = onTiledScrollGeometryChange
+    uiView.onTiledScrollGeometryChange = onTiledScrollGeometryChange.map { perform in
+      return { arg in
+        withPrerender {
+          perform(arg)
+        }
+      }
+    }
+    
     uiView.onTapBackground = onTapBackground
     uiView.additionalContentInset = additionalContentInset
     uiView.swiftUIWorldSafeAreaInset = swiftUIWorldSafeAreaInset

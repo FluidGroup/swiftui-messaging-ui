@@ -16,12 +16,14 @@ let package = Package(
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-collections", from: "1.3.0"),
+    .package(url: "https://github.com/FluidGroup/swift-with-prerender", from: "1.1.0"),
   ],
   targets: [
     .target(
       name: "MessagingUI",
       dependencies: [
         .product(name: "DequeModule", package: "swift-collections"),
+        .product(name: "WithPrerender", package: "swift-with-prerender"),
       ]
     ),
     .testTarget(
