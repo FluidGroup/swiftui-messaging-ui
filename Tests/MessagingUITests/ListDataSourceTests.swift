@@ -17,24 +17,24 @@ struct ListDataSourceTests {
     var value: String
   }
 
-  // MARK: - applyDiff Tests
+  // MARK: - apply Tests
 
   @Test
   func emptyToNonEmpty() {
     var dataSource = ListDataSource<TestItem>()
     let newItems = [TestItem(id: 1, value: "A"), TestItem(id: 2, value: "B")]
 
-    dataSource.applyDiff(from: newItems)
+    dataSource.apply(newItems)
 
     #expect(dataSource.items == newItems)
-    #expect(dataSource.pendingChanges.last == .setItems)
+    #expect(dataSource.pendingChanges.last == .replace)
   }
 
   @Test
   func nonEmptyToEmpty() {
     var dataSource = ListDataSource(items: [TestItem(id: 1, value: "A")])
 
-    dataSource.applyDiff(from: [])
+    dataSource.apply( [])
 
     #expect(dataSource.items.isEmpty)
     #expect(dataSource.pendingChanges.last == .remove([1]))
@@ -45,7 +45,7 @@ struct ListDataSourceTests {
     var dataSource = ListDataSource(items: [TestItem(id: 2, value: "B")])
     let newItems = [TestItem(id: 1, value: "A"), TestItem(id: 2, value: "B")]
 
-    dataSource.applyDiff(from: newItems)
+    dataSource.apply( newItems)
 
     #expect(dataSource.items == newItems)
     #expect(dataSource.pendingChanges.contains(.prepend([1])))
@@ -56,7 +56,7 @@ struct ListDataSourceTests {
     var dataSource = ListDataSource(items: [TestItem(id: 1, value: "A")])
     let newItems = [TestItem(id: 1, value: "A"), TestItem(id: 2, value: "B")]
 
-    dataSource.applyDiff(from: newItems)
+    dataSource.apply( newItems)
 
     #expect(dataSource.items == newItems)
     #expect(dataSource.pendingChanges.contains(.append([2])))
@@ -74,7 +74,7 @@ struct ListDataSourceTests {
       TestItem(id: 3, value: "C")
     ]
 
-    dataSource.applyDiff(from: newItems)
+    dataSource.apply( newItems)
 
     #expect(dataSource.items == newItems)
     #expect(dataSource.pendingChanges.contains(.insert(at: 1, ids: [2])))
@@ -85,7 +85,7 @@ struct ListDataSourceTests {
     var dataSource = ListDataSource(items: [TestItem(id: 1, value: "A")])
     let newItems = [TestItem(id: 1, value: "A-Updated")]
 
-    dataSource.applyDiff(from: newItems)
+    dataSource.apply( newItems)
 
     #expect(dataSource.items == newItems)
     #expect(dataSource.pendingChanges.contains(.update([1])))
@@ -99,7 +99,7 @@ struct ListDataSourceTests {
     ])
     let newItems = [TestItem(id: 1, value: "A")]
 
-    dataSource.applyDiff(from: newItems)
+    dataSource.apply( newItems)
 
     #expect(dataSource.items == newItems)
     #expect(dataSource.pendingChanges.contains(.remove([2])))
@@ -120,7 +120,7 @@ struct ListDataSourceTests {
       // id: 4 removed
     ]
 
-    dataSource.applyDiff(from: newItems)
+    dataSource.apply( newItems)
 
     #expect(dataSource.items == newItems)
     #expect(dataSource.pendingChanges.contains(.remove([4])))
@@ -134,7 +134,7 @@ struct ListDataSourceTests {
     var dataSource = ListDataSource(items: items)
     let initialChangeCount = dataSource.pendingChanges.count
 
-    dataSource.applyDiff(from: items)
+    dataSource.apply( items)
 
     // No new changes should be added
     #expect(dataSource.pendingChanges.count == initialChangeCount)

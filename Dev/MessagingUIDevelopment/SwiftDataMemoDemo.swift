@@ -129,7 +129,7 @@ final class MemoStore {
     let items = memos.map(MemoItem.init)
 
     // Automatically detect and apply diff
-    dataSource.applyDiff(from: items)
+    dataSource.apply(items)
 
     hasMore = offset > 0
   }

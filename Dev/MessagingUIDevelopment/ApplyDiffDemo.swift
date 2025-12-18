@@ -193,7 +193,7 @@ struct BookApplyDiffDemo: View {
 
   private func applyAndLog(_ expectedChange: String) {
     var updatedDataSource = dataSource
-    updatedDataSource.applyDiff(from: serverItems)
+    updatedDataSource.apply(serverItems)
 
     // Check if change counter increased
     let newCounter = updatedDataSource.changeCounter

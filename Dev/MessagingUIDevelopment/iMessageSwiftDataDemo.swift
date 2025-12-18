@@ -180,7 +180,7 @@ final class ChatStore {
     let models = (try? modelContext.fetch(descriptor)) ?? []
     let items = models.map(ChatMessageItem.init)
 
-    dataSource.applyDiff(from: items)
+    dataSource.apply(items)
     hasMore = offset > 0
   }
 
@@ -297,7 +297,7 @@ final class ChatStore {
     try? modelContext.delete(model: ChatMessageModel.self)
     try? modelContext.save()
     loadedCount = 0
-    dataSource.setItems([])
+    dataSource.replace(with: [])
     hasMore = false
   }
 }
@@ -311,7 +311,7 @@ struct iMessageSwiftDataDemo: View {
   @State private var inputText = ""
   @State private var scrollPosition = TiledScrollPosition(
     autoScrollsToBottomOnAppend: true,
-    scrollsToBottomOnSetItems: true
+    scrollsToBottomOnReplace: true
   )
   @State private var scrollGeometry: TiledScrollGeometry?
   @FocusState private var isInputFocused: Bool

@@ -12,15 +12,43 @@ import Foundation
 
 /// A data source that tracks changes for efficient list updates.
 ///
-/// Instead of directly modifying an array, use this data source's methods
-/// to modify items. This allows list views to know exactly what changed
-/// and update accordingly without adjusting content offset.
+/// ## Overview
+///
+/// `ListDataSource` tracks incremental changes to enable smooth scrolling
+/// without content offset jumps. It's designed for messaging UIs where
+/// maintaining scroll position during updates is critical.
+///
+/// ## Performance: Use Mutating Methods
+///
+/// **Important:** Always modify the data source using its mutating methods
+/// instead of creating new instances. The data source has a unique ``id``
+/// that TiledView uses to detect replacement. Creating a new instance
+/// causes a full reload and loses scroll position.
+///
+/// ```swift
+/// // ✅ Good: Mutate existing instance (id stays the same)
+/// dataSource.apply(newMessages)
+///
+/// // ❌ Bad: Creates new instance (id changes → full reload)
+/// dataSource = ListDataSource(items: newMessages)
+/// ```
+///
+/// ## Recommended Usage
+///
+/// Use ``apply(_:)`` for most cases. It automatically detects changes:
+///
+/// ```swift
+/// @State var dataSource = ListDataSource<Message>()
+///
+/// let messages = await fetchMessages()
+/// dataSource.apply(messages)  // Efficiently applies diff
+/// ```
 public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
 
   // MARK: - Change
 
   public enum Change: Equatable {
-    case setItems
+    case replace
     case prepend([Item.ID])
     case append([Item.ID])
     case insert(at: Int, ids: [Item.ID])
@@ -50,22 +78,24 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
 
   public init(items: [Item]) {
     self.items = Deque(items)
-    self.pendingChanges = [.setItems]
+    self.pendingChanges = [.replace]
     self.changeCounter = 1
   }
 
   // MARK: - Mutation Methods
 
-  /// Sets all items, replacing any existing items.
+  /// Replaces all items with the given items.
   /// Use this for initial load or complete refresh.
-  public mutating func setItems(_ items: [Item]) {
+  /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
+  public mutating func replace(with items: [Item]) {
     self.items = Deque(items)
-    pendingChanges.append(.setItems)
+    pendingChanges.append(.replace)
     changeCounter += 1
   }
 
   /// Adds items to the beginning of the list.
   /// Use this for loading older content (e.g., older messages).
+  /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
   public mutating func prepend(_ items: [Item]) {
     guard !items.isEmpty else { return }
     let ids = items.map { $0.id }
@@ -78,6 +108,7 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
 
   /// Adds items to the end of the list.
   /// Use this for loading newer content (e.g., new messages).
+  /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
   public mutating func append(_ items: [Item]) {
     guard !items.isEmpty else { return }
     let ids = items.map { $0.id }
@@ -88,6 +119,7 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
 
   /// Inserts items at a specific index.
   /// Use this for middle insertions (not at beginning or end).
+  /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
   public mutating func insert(_ items: [Item], at index: Int) {
     guard !items.isEmpty else { return }
     let ids = items.map { $0.id }
@@ -100,7 +132,8 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
 
   /// Updates existing items by matching their IDs.
   /// Items that don't exist in the current list are ignored.
-  public mutating func update(_ items: [Item]) {
+  /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
+  public mutating func updateExisting(_ items: [Item]) {
     guard !items.isEmpty else { return }
     var updatedIds: [Item.ID] = []
     for item in items {
@@ -116,6 +149,7 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
   }
 
   /// Removes items with the specified IDs.
+  /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
   public mutating func remove(ids: [Item.ID]) {
     guard !ids.isEmpty else { return }
     let idsSet = Set(ids)
@@ -156,12 +190,12 @@ extension ListDataSource {
 
   /// Applies the difference between current items and new items.
   /// Automatically detects prepend, append, insert, update, and remove operations.
-  public mutating func applyDiff(from newItems: [Item]) {
+  public mutating func apply(_ newItems: [Item]) {
     let oldItems = self.items
 
-    // Empty to non-empty: use setItems
+    // Empty to non-empty: use replace
     if oldItems.isEmpty && !newItems.isEmpty {
-      setItems(newItems)
+      replace(with: newItems)
       return
     }
 
@@ -278,7 +312,7 @@ extension ListDataSource {
     }
 
     if !updatedItems.isEmpty {
-      update(updatedItems)
+      updateExisting(updatedItems)
     }
   }
 }

@@ -207,7 +207,7 @@ struct iMessageDemo: View {
     nextPrependId = -1
     nextAppendId = 10
     let initialMessages = generateConversation(count: 10, startId: 0)
-    dataSource.setItems(initialMessages)
+    dataSource.replace(with: initialMessages)
   }
 }
 
