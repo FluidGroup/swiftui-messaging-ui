@@ -314,6 +314,7 @@ struct iMessageSwiftDataDemo: View {
     scrollsToBottomOnSetItems: true
   )
   @State private var scrollGeometry: TiledScrollGeometry?
+  @FocusState private var isInputFocused: Bool
 
   private var isNearBottom: Bool {
     guard let geometry = scrollGeometry else { return true }
@@ -321,73 +322,16 @@ struct iMessageSwiftDataDemo: View {
   }
 
   var body: some View {
-    VStack(spacing: 0) {
+    ZStack {
       // Messages
       if let store {
-        ZStack(alignment: .bottomTrailing) {
-          TiledView(
-            dataSource: store.dataSource,
-            scrollPosition: $scrollPosition,
-            onPrepend: {
-              store.loadMore()
-            }
-          ) { message, _ in
-            iMessageBubbleView(message: message)
-              .contextMenu {
-                Button(role: .destructive) {
-                  store.deleteMessage(id: message.id)
-                } label: {
-                  Label("Delete", systemImage: "trash")
-                }
-              }
-          }
-          .onScrollGeometryChange { geometry in
-            scrollGeometry = geometry
-          }
-
-          // Scroll to bottom button
-          if !isNearBottom {
-            Button {
-              scrollPosition.scrollTo(edge: .bottom, animated: true)
-            } label: {
-              Image(systemName: "arrow.down.circle.fill")
-                .font(.title)
-                .foregroundStyle(.blue)
-                .background(Circle().fill(.white))
-            }
-            .padding()
-            .transition(.scale.combined(with: .opacity))
-          }
-        }
-        .animation(.easeInOut(duration: 0.2), value: isNearBottom)
+        loadedContent(store: store)
       } else {
         Spacer()
         ProgressView()
         Spacer()
       }
-
-      Divider()
-
-      // Input bar
-      HStack(spacing: 12) {
-        TextField("Message", text: $inputText)
-          .textFieldStyle(.roundedBorder)
-          .onSubmit {
-            sendMessage()
-          }
-
-        Button {
-          sendMessage()
-        } label: {
-          Image(systemName: "arrow.up.circle.fill")
-            .font(.title)
-            .foregroundStyle(inputText.isEmpty ? .gray : .blue)
-        }
-        .disabled(inputText.isEmpty)
-      }
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
-      .background(.bar)
+     
     }
     .navigationTitle("Messages")
     .navigationBarTitleDisplayMode(.inline)
@@ -436,6 +380,87 @@ struct iMessageSwiftDataDemo: View {
         store?.loadInitial()
       }
     }
+  }
+  
+  @ViewBuilder
+  private var inputView: some View {
+    Divider()
+    
+    // Input bar
+    HStack(spacing: 12) {
+      TextField("Message", text: $inputText)
+        .focused($isInputFocused)
+        .textFieldStyle(.roundedBorder)
+        .onSubmit {
+          sendMessage()
+        }
+      
+      Button {
+        sendMessage()
+      } label: {
+        Image(systemName: "arrow.up.circle.fill")
+          .font(.title)
+          .foregroundStyle(inputText.isEmpty ? .gray : .blue)
+      }
+      .disabled(inputText.isEmpty)
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .background(.bar)
+  }
+  
+  private func loadedContent(store: ChatStore) -> some View {
+    ZStack(alignment: .bottomTrailing) {
+                  
+      TiledView(        
+        dataSource: store.dataSource,
+        scrollPosition: $scrollPosition,
+        onPrepend: {
+          store.loadMore()
+        }
+      ) { message, _ in
+        iMessageBubbleView(message: message)
+          .contextMenu {
+            Button(role: .destructive) {
+              store.deleteMessage(id: message.id)
+            } label: {
+              Label("Delete", systemImage: "trash")
+            }
+          }
+      }
+      .onTapBackground {
+        isInputFocused = false
+      }
+      .onTiledScrollGeometryChange { geometry in
+        scrollGeometry = geometry
+      }
+
+      // Scroll to bottom button
+      if !isNearBottom {
+        Button {
+          scrollPosition.scrollTo(edge: .bottom, animated: true)
+        } label: {
+          Image(systemName: "arrow.down.circle.fill")
+            .font(.title)
+            .foregroundStyle(.blue)
+            .background(Circle().fill(.white))
+        }
+        .padding()
+        .transition(.scale.combined(with: .opacity))
+      }
+      
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0, content: {
+      inputView
+        .onGeometryChange(for: CGFloat.self) { proxy in
+          print(proxy.size)
+          return proxy.size.height - proxy.frame(in: .global).minY
+        } action: { newValue in
+          print("Input view minY: \(newValue)")
+        }
+
+    })
+    .animation(.easeInOut(duration: 0.2), value: isNearBottom)
   }
 
   private func sendMessage() {
