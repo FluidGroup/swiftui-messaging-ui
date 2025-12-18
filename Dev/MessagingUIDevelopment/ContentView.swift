@@ -10,6 +10,7 @@ import MessagingUI
 
 enum DemoDestination: Hashable {
   case tiledView
+  case lazyVStack
   case iMessage
   case iMessageSwiftData
   case applyDiffDemo
@@ -34,6 +35,19 @@ struct ContentView: View {
               }
             } icon: {
               Image(systemName: "square.grid.2x2")
+            }
+          }
+
+          NavigationLink(value: DemoDestination.lazyVStack) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("LazyVStack")
+                Text("SwiftUI native")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "list.bullet")
             }
           }
 
@@ -99,6 +113,8 @@ struct ContentView: View {
           BookTiledView(namespace: namespace)
             .navigationTitle("TiledView")
             .navigationBarTitleDisplayMode(.inline)
+        case .lazyVStack:
+          LazyVStackDemo()
         case .iMessage:
           iMessageDemo()
         case .iMessageSwiftData:
