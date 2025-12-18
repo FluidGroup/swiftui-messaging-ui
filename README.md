@@ -4,7 +4,7 @@
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FFluidGroup%2Fswiftui-messaging-ui%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/FluidGroup/swiftui-messaging-ui)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/FluidGroup/swiftui-messaging-ui)
 
-A SwiftUI list component with **stable prepending** - no scroll jumps when loading older messages.
+A primitive component to make Chat-UI with **stable prepending** - no scroll jumps when loading older messages.
 
 | Auto Scrolling | Prepending without jumps |
 | :--- | :--- |
