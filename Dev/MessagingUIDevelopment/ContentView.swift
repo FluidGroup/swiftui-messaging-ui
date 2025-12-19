@@ -138,9 +138,7 @@ struct ContentView: View {
       .navigationDestination(for: DemoDestination.self) { destination in
         switch destination {
         case .tiledView:
-          BookTiledView(namespace: namespace)
-            .navigationTitle("TiledView")
-            .navigationBarTitleDisplayMode(.inline)
+          BookTiledView(namespace: namespace)       
         case .tiledViewLoadingIndicator:
           BookTiledViewLoadingIndicator()
             .navigationBarTitleDisplayMode(.inline)

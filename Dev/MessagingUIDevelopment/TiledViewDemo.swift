@@ -122,17 +122,8 @@ struct BookTiledView: View {
 
   let namespace: Namespace.ID
   
-  @ViewBuilder
-  private var tiledView: some View {
-    if #available(iOS 18.0, *) {
-      TiledView(
-        dataSource: dataSource,
-        scrollPosition: $scrollPosition,
-        cellBuilder: { message, _ in
-          ChatBubbleCellWithNavigation(item: message, namespace: namespace, useMatchedTransition: true)
-        }
-      )
-    } else {
+  var body: some View {
+    ZStack {
       TiledView(
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
@@ -141,11 +132,7 @@ struct BookTiledView: View {
         }
       )
     }
-  }    
-
-  var body: some View {
-    tiledView
-    .safeAreaInset(edge: .bottom) {
+    .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: 0) {
         Divider()
         HStack {
@@ -243,6 +230,8 @@ struct BookTiledView: View {
         }
       }
     }
+    .navigationTitle("TiledView")
+    .navigationBarTitleDisplayMode(.inline)
   }
 }
 

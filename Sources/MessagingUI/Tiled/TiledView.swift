@@ -310,7 +310,6 @@ final class _TiledView<
 
     let combined = additionalContentInset + swiftUIWorldSafeAreaInset
     let uiEdgeInsets = combined.toUIEdgeInsets(layoutDirection: effectiveUserInterfaceLayoutDirection) - safeAreaInsets
-
     // Calculate delta before applying changes
     // Delta = new additionalContentInset.bottom - old additionalContentInset.bottom
     let oldAdditionalBottom = tiledLayout.additionalContentInset.bottom
