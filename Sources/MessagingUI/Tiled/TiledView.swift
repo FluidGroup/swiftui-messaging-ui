@@ -106,6 +106,25 @@ final class TiledViewCell: UICollectionViewCell {
   }
 }
 
+// MARK: - EdgeLoadTrigger
+
+/// Encapsulates state for edge-triggered loading (prepend/append).
+private struct EdgeLoadTrigger: ~Copyable {
+
+  /// Whether the trigger has been activated
+  var isTriggered: Bool = false
+
+  /// Distance from edge to trigger loading
+  let threshold: CGFloat
+
+  /// Currently running load task
+  var task: Task<Void, Never>?
+
+  init(threshold: CGFloat = 100) {
+    self.threshold = threshold
+  }
+}
+
 /// MARK: - RevealGestureState
 
 /// Encapsulates state for swipe-to-reveal gesture handling.
@@ -147,10 +166,9 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   private var lastDataSourceID: UUID?
   private var appliedCursor: Int = 0
 
-  /// Prepend trigger state
-  private var isPrependTriggered: Bool = false
-  private let prependThreshold: CGFloat = 100
-  private var prependTask: Task<Void, Never>?
+  /// Edge load triggers
+  private var prependTrigger = EdgeLoadTrigger()
+  private var appendTrigger = EdgeLoadTrigger()
 
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
@@ -285,13 +303,16 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   typealias DataSource = ListDataSource<Item>
 
   let onPrepend: (@MainActor () async throws -> Void)?
+  let onAppend: (@MainActor () async throws -> Void)?
 
   init(
     cellBuilder: @escaping (Item, CellState) -> Cell,
-    onPrepend: (@MainActor () async throws -> Void)? = nil
+    onPrepend: (@MainActor () async throws -> Void)? = nil,
+    onAppend: (@MainActor () async throws -> Void)? = nil
   ) {
     self.cellBuilder = cellBuilder
     self.onPrepend = onPrepend
+    self.onAppend = onAppend
     super.init(frame: .zero)
 
     do {
@@ -550,18 +571,33 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
 
+    // Prepend trigger
     let offsetY = scrollView.contentOffset.y + scrollView.contentInset.top
-
-    if offsetY <= prependThreshold {
-      if !isPrependTriggered && prependTask == nil {
-        isPrependTriggered = true
-        prependTask = Task { @MainActor [weak self] in
-          defer { self?.prependTask = nil }
+    if offsetY <= prependTrigger.threshold {
+      if !prependTrigger.isTriggered && prependTrigger.task == nil {
+        prependTrigger.isTriggered = true
+        prependTrigger.task = Task { @MainActor [weak self] in
+          defer { self?.prependTrigger.task = nil }
           try? await self?.onPrepend?()
         }
       }
     } else {
-      isPrependTriggered = false
+      prependTrigger.isTriggered = false
+    }
+
+    // Append trigger
+    let maxOffsetY = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+    let distanceFromBottom = max(0, maxOffsetY - scrollView.contentOffset.y)
+    if distanceFromBottom <= appendTrigger.threshold {
+      if !appendTrigger.isTriggered && appendTrigger.task == nil {
+        appendTrigger.isTriggered = true
+        appendTrigger.task = Task { @MainActor [weak self] in
+          defer { self?.appendTrigger.task = nil }
+          try? await self?.onAppend?()
+        }
+      }
+    } else {
+      appendTrigger.isTriggered = false
     }
 
     // Check if dragging into bottom safe area
@@ -815,6 +851,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
   let cellBuilder: (Item, CellState) -> Cell
   let cellStates: [Item.ID: CellState]?
   let onPrepend: (@MainActor () async throws -> Void)?
+  let onAppend: (@MainActor () async throws -> Void)?
   let onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   let onTapBackground: (() -> Void)?
   let onDragIntoBottomSafeArea: (() -> Void)?
@@ -828,6 +865,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     scrollPosition: Binding<TiledScrollPosition>,
     cellStates: [Item.ID: CellState]? = nil,
     onPrepend: (@MainActor () async throws -> Void)? = nil,
+    onAppend: (@MainActor () async throws -> Void)? = nil,
     onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)? = nil,
     onTapBackground: (() -> Void)? = nil,
     onDragIntoBottomSafeArea: (() -> Void)? = nil,
@@ -840,6 +878,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     self._scrollPosition = scrollPosition
     self.cellStates = cellStates
     self.onPrepend = onPrepend
+    self.onAppend = onAppend
     self.onTiledScrollGeometryChange = onTiledScrollGeometryChange
     self.onTapBackground = onTapBackground
     self.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
@@ -850,7 +889,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
   }
 
   func makeUIView(context: Context) -> _TiledView<Item, Cell> {
-    let view = _TiledView(cellBuilder: cellBuilder, onPrepend: onPrepend)
+    let view = _TiledView(cellBuilder: cellBuilder, onPrepend: onPrepend, onAppend: onAppend)
     updateUIView(view, context: context)
     return view
   }
@@ -1037,6 +1076,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
   let cellBuilder: (Item, CellState) -> Cell
   let cellStates: [Item.ID: CellState]?
   let onPrepend: (@MainActor () async throws -> Void)?
+  let onAppend: (@MainActor () async throws -> Void)?
   var onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   var onTapBackground: (() -> Void)?
   var onDragIntoBottomSafeArea: (() -> Void)?
@@ -1049,12 +1089,14 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
     scrollPosition: Binding<TiledScrollPosition>,
     cellStates: [Item.ID: CellState]? = nil,
     onPrepend: (@MainActor () async throws -> Void)? = nil,
+    onAppend: (@MainActor () async throws -> Void)? = nil,
     @ViewBuilder cellBuilder: @escaping (Item, CellState) -> Cell
   ) {
     self.dataSource = dataSource
     self._scrollPosition = scrollPosition
     self.cellStates = cellStates
     self.onPrepend = onPrepend
+    self.onAppend = onAppend
     self.cellBuilder = cellBuilder
   }
 
@@ -1081,12 +1123,14 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
     scrollPosition: Binding<TiledScrollPosition>,
     cellStates: [Item.ID: CellState]? = nil,
     onPrepend: (@MainActor () async throws -> Void)? = nil,
+    onAppend: (@MainActor () async throws -> Void)? = nil,
     cellBuilder: @escaping (Item, CellState) -> CellContent
   ) where Cell == TiledCellContentWrapper<CellContent> {
     self.dataSource = dataSource
     self._scrollPosition = scrollPosition
     self.cellStates = cellStates
     self.onPrepend = onPrepend
+    self.onAppend = onAppend
     // Wrap the TiledCellContent in a View using TiledCellContentWrapper
     // The wrapper reads cellReveal from Environment at render time
     self.cellBuilder = { item, state in
@@ -1101,6 +1145,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
         scrollPosition: $scrollPosition,
         cellStates: cellStates,
         onPrepend: onPrepend,
+        onAppend: onAppend,
         onTiledScrollGeometryChange: onTiledScrollGeometryChange,
         onTapBackground: onTapBackground,
         onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,

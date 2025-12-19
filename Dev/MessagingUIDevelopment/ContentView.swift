@@ -13,6 +13,7 @@ enum DemoDestination: Hashable {
   case lazyVStack
   case messenger
   case messengerSwiftData
+  case messengerBidirectional
   case applyDiffDemo
   case swiftDataMemo
 }
@@ -92,6 +93,19 @@ struct ContentView: View {
             }
           }
 
+          NavigationLink(value: DemoDestination.messengerBidirectional) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Messenger (Bidirectional)")
+                Text("Load from middle, scroll both ways")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "arrow.up.arrow.down")
+            }
+          }
+
           NavigationLink(value: DemoDestination.swiftDataMemo) {
             Label {
               VStack(alignment: .leading) {
@@ -119,6 +133,8 @@ struct ContentView: View {
           MessengerDemo()
         case .messengerSwiftData:
           MessengerSwiftDataDemo()
+        case .messengerBidirectional:
+          MessengerSwiftDataDemo(loadPosition: .middle)
         case .applyDiffDemo:
           BookApplyDiffDemo()
             .navigationTitle("applyDiff Demo")
