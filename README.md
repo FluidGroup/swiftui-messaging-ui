@@ -8,8 +8,7 @@ A primitive component to make Chat-UI with **stable prepending** - no scroll jum
 
 | Auto Scrolling | Prepending without jumps | Revealing Info |
 | :--- | :--- | :-- |
-| ![video2](https://github.com/user-attachments/assets/e21ff76e-5b39-45b2-b13b-c608d15414e7)| ![video1](https://github.com/user-attachments/assets/5325bbd0-38bc-4504-868d-e379b2ba3f2f) | ![Simulator Screen Recording - iPhone 17 Pro - 2025-12-19 at 15 45 00](https://github.com/user-attachments/assets/fa654218-9104-4737-ba23-8677c0955fc1)
- |
+| ![video2](https://github.com/user-attachments/assets/e21ff76e-5b39-45b2-b13b-c608d15414e7)| ![video1](https://github.com/user-attachments/assets/5325bbd0-38bc-4504-868d-e379b2ba3f2f) | ![Simulator Screen Recording - iPhone 17 Pro - 2025-12-19 at 15 45 00](https://github.com/user-attachments/assets/fa654218-9104-4737-ba23-8677c0955fc1) |
 
 ## The Prepending Problem
 
