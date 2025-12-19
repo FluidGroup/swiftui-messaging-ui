@@ -367,7 +367,7 @@ struct MessengerSwiftDataDemo: View {
           store.loadMore()
         }
       ) { message, _ in
-        MessageBubbleWithStatusView(message: message)
+        TiledCellContentWrapper(content: MessageBubbleWithStatusCell(item: message))
           .contextMenu {
             Button(role: .destructive) {
               store.deleteMessage(id: message.id)

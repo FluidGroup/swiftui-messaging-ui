@@ -64,7 +64,7 @@ struct MessengerDemo: View {
         dataSource: dataSource,
         scrollPosition: $scrollPosition
       ) { message, state in
-        MessageBubbleView(message: message)
+        MessageBubbleCell(item: message)
       }
       .revealConfiguration(.default)
 

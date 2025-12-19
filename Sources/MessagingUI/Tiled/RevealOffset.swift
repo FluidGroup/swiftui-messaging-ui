@@ -81,6 +81,7 @@ extension EnvironmentValues {
   ///   }
   /// }
   /// ```
+  @_spi(Internal)
   public var cellReveal: CellReveal? {
     get { self[CellRevealKey.self] }
     set { self[CellRevealKey.self] = newValue }
@@ -98,20 +99,24 @@ extension EnvironmentValues {
 /// TiledView(...)
 ///   .revealConfiguration(.default)
 /// ```
-public struct RevealConfiguration: Equatable, Sendable {
+public struct RevealConfiguration {
 
   /// Whether the reveal feature is enabled.
   public var isEnabled: Bool
 
   /// Creates a reveal configuration.
   /// - Parameter isEnabled: Whether the feature is enabled. Default is true.
-  public init(isEnabled: Bool = true) {
+  public init(isEnabled: Bool) {
     self.isEnabled = isEnabled
   }
 
   /// Default configuration (enabled).
-  public static var `default`: RevealConfiguration { .init() }
+  public static var `default`: RevealConfiguration {
+    .init(isEnabled: true)
+  }
 
   /// Disabled configuration.
-  public static var disabled: RevealConfiguration { .init(isEnabled: false) }
+  public static var disabled: RevealConfiguration {
+    .init(isEnabled: false)
+  }
 }

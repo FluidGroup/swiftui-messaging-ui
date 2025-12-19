@@ -2,7 +2,7 @@
 //  MessageBubbleView.swift
 //  MessagingUIDevelopment
 //
-//  Shared message bubble view with swipe-to-reveal timestamp support.
+//  Shared message bubble cell with swipe-to-reveal timestamp support.
 //
 
 import SwiftUI
@@ -10,21 +10,22 @@ import MessagingUI
 
 // MARK: - MessageContent Protocol
 
-/// Protocol for message content that can be displayed in MessageBubbleView.
+/// Protocol for message content that can be displayed in MessageBubbleCell.
 protocol MessageContent {
   var text: String { get }
   var isSentByMe: Bool { get }
   var timestamp: Date { get }
 }
 
-// MARK: - MessageBubbleView
+// MARK: - MessageBubbleCell
 
-/// iMessage-style bubble view with swipe-to-reveal timestamp.
-struct MessageBubbleView<Content: MessageContent>: View {
+/// iMessage-style bubble cell with swipe-to-reveal timestamp.
+///
+/// Uses `TiledCellContent` protocol to receive reveal offset from context
+/// instead of reading from `@Environment`.
+struct MessageBubbleCell<Content: MessageContent>: TiledCellContent {
 
-  let message: Content
-
-  @Environment(\.cellReveal) private var cellReveal
+  let item: Content
 
   private let maxRevealOffset: CGFloat = 60
 
@@ -34,24 +35,24 @@ struct MessageBubbleView<Content: MessageContent>: View {
     return formatter
   }
 
-  var body: some View {
-    let revealOffset = cellReveal?.rubberbandedOffset(max: maxRevealOffset) ?? 0
+  func body(context: CellContext) -> some View {
+    let revealOffset = context.cellReveal?.rubberbandedOffset(max: maxRevealOffset) ?? 0
 
     HStack(spacing: 0) {
-      if message.isSentByMe {
+      if item.isSentByMe {
         Spacer(minLength: 60)
       }
 
       bubbleContent
 
-      if !message.isSentByMe {
+      if !item.isSentByMe {
         Spacer(minLength: 60)
       }
     }
     .offset(x: -revealOffset)
     .overlay(alignment: .trailing) {
       // Timestamp hidden off-screen, revealed on swipe
-      Text(Self.timeFormatter.string(from: message.timestamp))
+      Text(Self.timeFormatter.string(from: item.timestamp))
         .font(.caption2)
         .foregroundStyle(.secondary)
         .frame(width: maxRevealOffset)
@@ -63,26 +64,24 @@ struct MessageBubbleView<Content: MessageContent>: View {
   }
 
   private var bubbleContent: some View {
-    Text(message.text)
+    Text(item.text)
       .font(.body)
-      .foregroundStyle(message.isSentByMe ? .white : .primary)
+      .foregroundStyle(item.isSentByMe ? .white : .primary)
       .padding(.horizontal, 12)
       .padding(.vertical, 8)
       .background(
         RoundedRectangle(cornerRadius: 18)
-          .fill(message.isSentByMe ? Color.blue : Color(.systemGray5))
+          .fill(item.isSentByMe ? Color.blue : Color(.systemGray5))
       )
   }
 }
 
-// MARK: - MessageBubbleView with Status
+// MARK: - MessageBubbleWithStatusCell
 
-/// Extended bubble view that shows message status (for sent messages).
-struct MessageBubbleWithStatusView<Content: MessageContentWithStatus>: View {
+/// Extended bubble cell that shows message status (for sent messages).
+struct MessageBubbleWithStatusCell<Content: MessageContentWithStatus>: TiledCellContent {
 
-  let message: Content
-
-  @Environment(\.cellReveal) private var cellReveal
+  let item: Content
 
   private let maxRevealOffset: CGFloat = 60
 
@@ -92,17 +91,17 @@ struct MessageBubbleWithStatusView<Content: MessageContentWithStatus>: View {
     return formatter
   }
 
-  var body: some View {
-    let revealOffset = cellReveal?.rubberbandedOffset(max: maxRevealOffset) ?? 0
+  func body(context: CellContext) -> some View {
+    let revealOffset = context.cellReveal?.rubberbandedOffset(max: maxRevealOffset) ?? 0
 
     HStack(spacing: 0) {
-      if message.isSentByMe {
+      if item.isSentByMe {
         Spacer(minLength: 60)
       }
 
       bubbleContent
 
-      if !message.isSentByMe {
+      if !item.isSentByMe {
         Spacer(minLength: 60)
       }
     }
@@ -110,26 +109,25 @@ struct MessageBubbleWithStatusView<Content: MessageContentWithStatus>: View {
     .overlay(alignment: .trailing) {
       // Timestamp + status hidden off-screen, revealed on swipe
       VStack(alignment: .trailing, spacing: 2) {
-        Text(Self.timeFormatter.string(from: message.timestamp))
+        Text(Self.timeFormatter.string(from: item.timestamp))
           .font(.caption2)
           .foregroundStyle(.secondary)
 
-        if message.isSentByMe {
+        if item.isSentByMe {
           statusIcon
         }
       }
       .frame(width: maxRevealOffset)
       .offset(x: maxRevealOffset - revealOffset)
     }
-    .clipped()
     .padding(.horizontal, 12)
     .padding(.vertical, 2)
   }
 
   private var bubbleContent: some View {
-    Text(message.text)
+    Text(item.text)
       .font(.body)
-      .foregroundStyle(message.isSentByMe ? .white : .primary)
+      .foregroundStyle(item.isSentByMe ? .white : .primary)
       .padding(.horizontal, 12)
       .padding(.vertical, 8)
       .background(
@@ -139,8 +137,8 @@ struct MessageBubbleWithStatusView<Content: MessageContentWithStatus>: View {
   }
 
   private var bubbleColor: Color {
-    if message.isSentByMe {
-      return message.status == .failed ? .red : .blue
+    if item.isSentByMe {
+      return item.status == .failed ? .red : .blue
     } else {
       return Color(.systemGray5)
     }
@@ -148,7 +146,7 @@ struct MessageBubbleWithStatusView<Content: MessageContentWithStatus>: View {
 
   @ViewBuilder
   private var statusIcon: some View {
-    switch message.status {
+    switch item.status {
     case .sending:
       ProgressView()
         .scaleEffect(0.5)
