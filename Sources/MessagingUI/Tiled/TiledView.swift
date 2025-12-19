@@ -106,6 +106,25 @@ final class TiledViewCell: UICollectionViewCell {
   }
 }
 
+// MARK: - EdgeLoadTrigger
+
+/// Encapsulates state for edge-triggered loading (prepend/append).
+private struct EdgeLoadTrigger: ~Copyable {
+
+  /// Whether the trigger has been activated
+  var isTriggered: Bool = false
+
+  /// Distance from edge to trigger loading
+  let threshold: CGFloat
+
+  /// Currently running load task
+  var task: Task<Void, Never>?
+
+  init(threshold: CGFloat = 100) {
+    self.threshold = threshold
+  }
+}
+
 /// MARK: - RevealGestureState
 
 /// Encapsulates state for swipe-to-reveal gesture handling.
@@ -147,15 +166,9 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   private var lastDataSourceID: UUID?
   private var appliedCursor: Int = 0
 
-  /// Prepend trigger state
-  private var isPrependTriggered: Bool = false
-  private let prependThreshold: CGFloat = 100
-  private var prependTask: Task<Void, Never>?
-
-  /// Append trigger state
-  private var isAppendTriggered: Bool = false
-  private let appendThreshold: CGFloat = 100
-  private var appendTask: Task<Void, Never>?
+  /// Edge load triggers
+  private var prependTrigger = EdgeLoadTrigger()
+  private var appendTrigger = EdgeLoadTrigger()
 
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
@@ -558,34 +571,33 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
 
+    // Prepend trigger
     let offsetY = scrollView.contentOffset.y + scrollView.contentInset.top
-
-    if offsetY <= prependThreshold {
-      if !isPrependTriggered && prependTask == nil {
-        isPrependTriggered = true
-        prependTask = Task { @MainActor [weak self] in
-          defer { self?.prependTask = nil }
+    if offsetY <= prependTrigger.threshold {
+      if !prependTrigger.isTriggered && prependTrigger.task == nil {
+        prependTrigger.isTriggered = true
+        prependTrigger.task = Task { @MainActor [weak self] in
+          defer { self?.prependTrigger.task = nil }
           try? await self?.onPrepend?()
         }
       }
     } else {
-      isPrependTriggered = false
+      prependTrigger.isTriggered = false
     }
 
     // Append trigger
     let maxOffsetY = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
     let distanceFromBottom = max(0, maxOffsetY - scrollView.contentOffset.y)
-
-    if distanceFromBottom <= appendThreshold {
-      if !isAppendTriggered && appendTask == nil {
-        isAppendTriggered = true
-        appendTask = Task { @MainActor [weak self] in
-          defer { self?.appendTask = nil }
+    if distanceFromBottom <= appendTrigger.threshold {
+      if !appendTrigger.isTriggered && appendTrigger.task == nil {
+        appendTrigger.isTriggered = true
+        appendTrigger.task = Task { @MainActor [weak self] in
+          defer { self?.appendTrigger.task = nil }
           try? await self?.onAppend?()
         }
       }
     } else {
-      isAppendTriggered = false
+      appendTrigger.isTriggered = false
     }
 
     // Check if dragging into bottom safe area
