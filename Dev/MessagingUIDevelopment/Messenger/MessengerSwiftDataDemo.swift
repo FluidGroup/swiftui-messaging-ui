@@ -49,6 +49,13 @@ struct ChatMessageItem: Identifiable, Equatable, MessageContentWithStatus {
   }
 }
 
+// MARK: - LoadPosition
+
+enum LoadPosition {
+  case end     // Load from newest (default)
+  case middle  // Load from middle
+}
+
 // MARK: - ChatStore
 
 @Observable
@@ -57,9 +64,13 @@ final class ChatStore {
   private let modelContext: ModelContext
   private(set) var dataSource = ListDataSource<ChatMessageItem>()
   private(set) var hasMore = true
+  private(set) var hasNewer = false
   var isAutoReceiveEnabled = false
 
-  private var loadedCount = 0
+  // Window-based pagination
+  private(set) var totalCount = 0
+  private var windowStart: Int = 0
+  private var windowSize: Int = 0
   private let pageSize = 20
   private var autoReceiveTask: Task<Void, Never>?
 
@@ -85,32 +96,49 @@ final class ChatStore {
     autoReceiveTask = nil
   }
 
-  func loadInitial() {
-    loadedCount = pageSize
-    refreshFromDatabase()
+  func loadInitial(from position: LoadPosition = .end) {
+    totalCount = (try? modelContext.fetchCount(FetchDescriptor<ChatMessageModel>())) ?? 0
+
+    switch position {
+    case .end:
+      windowStart = max(0, totalCount - pageSize)
+      windowSize = min(pageSize, totalCount)
+    case .middle:
+      windowStart = max(0, totalCount / 2 - pageSize / 2)
+      windowSize = min(pageSize, totalCount - windowStart)
+    }
+
+    refreshWindow()
   }
 
-  func loadMore() {
+  func loadOlder() {
     guard hasMore else { return }
-    loadedCount += pageSize
-    refreshFromDatabase()
+    let prepend = min(pageSize, windowStart)
+    windowStart -= prepend
+    windowSize += prepend
+    refreshWindow()
   }
 
-  private func refreshFromDatabase() {
-    let totalCount = (try? modelContext.fetchCount(FetchDescriptor<ChatMessageModel>())) ?? 0
-    let offset = max(0, totalCount - loadedCount)
+  func loadNewer() {
+    guard hasNewer else { return }
+    let available = totalCount - (windowStart + windowSize)
+    let append = min(pageSize, available)
+    windowSize += append
+    refreshWindow()
+  }
 
+  private func refreshWindow() {
     var descriptor = FetchDescriptor<ChatMessageModel>(
       sortBy: [SortDescriptor(\.timestamp, order: .forward)]
     )
-    descriptor.fetchOffset = offset
-    descriptor.fetchLimit = loadedCount
+    descriptor.fetchOffset = windowStart
+    descriptor.fetchLimit = windowSize
 
     let models = (try? modelContext.fetch(descriptor)) ?? []
-    let items = models.map(ChatMessageItem.init)
+    dataSource.apply(models.map(ChatMessageItem.init))
 
-    dataSource.apply(items)
-    hasMore = offset > 0
+    hasMore = windowStart > 0
+    hasNewer = windowStart + windowSize < totalCount
   }
 
   func sendMessage(text: String) {
@@ -122,8 +150,12 @@ final class ChatStore {
     modelContext.insert(message)
     try? modelContext.save()
 
-    loadedCount += 1
-    refreshFromDatabase()
+    totalCount += 1
+    // If at the end, extend window to include the new message
+    if !hasNewer {
+      windowSize += 1
+    }
+    refreshWindow()
 
     // Simulate sending delay
     let messageID = message.persistentModelID
@@ -145,15 +177,19 @@ final class ChatStore {
     modelContext.insert(message)
     try? modelContext.save()
 
-    loadedCount += 1
-    refreshFromDatabase()
+    totalCount += 1
+    // If at the end, extend window to include the new message
+    if !hasNewer {
+      windowSize += 1
+    }
+    refreshWindow()
   }
 
   private func updateMessageStatus(id: PersistentIdentifier, status: MessageStatus) {
     guard let message = modelContext.model(for: id) as? ChatMessageModel else { return }
     message.status = status
     try? modelContext.save()
-    refreshFromDatabase()
+    refreshWindow()
   }
 
   func deleteMessage(id: PersistentIdentifier) {
@@ -161,8 +197,9 @@ final class ChatStore {
     modelContext.delete(message)
     try? modelContext.save()
 
-    loadedCount = max(0, loadedCount - 1)
-    refreshFromDatabase()
+    totalCount = max(0, totalCount - 1)
+    windowSize = max(0, windowSize - 1)
+    refreshWindow()
   }
 
   // MARK: - Sample Data Generation
@@ -222,16 +259,23 @@ final class ChatStore {
     }
     try? modelContext.save()
 
-    loadedCount += count
-    refreshFromDatabase()
+    totalCount += count
+    // Extend window if at the end
+    if !hasNewer {
+      windowSize += count
+    }
+    refreshWindow()
   }
 
   func clearAll() {
     try? modelContext.delete(model: ChatMessageModel.self)
     try? modelContext.save()
-    loadedCount = 0
+    totalCount = 0
+    windowStart = 0
+    windowSize = 0
     dataSource.replace(with: [])
     hasMore = false
+    hasNewer = false
   }
 }
 
@@ -239,15 +283,22 @@ final class ChatStore {
 
 struct MessengerSwiftDataDemo: View {
 
+  let loadPosition: LoadPosition
+
   @Environment(\.modelContext) private var modelContext
   @State private var store: ChatStore?
   @State private var inputText = ""
-  @State private var scrollPosition = TiledScrollPosition(
-    autoScrollsToBottomOnAppend: true,
-    scrollsToBottomOnReplace: true
-  )
+  @State private var scrollPosition: TiledScrollPosition
   @State private var scrollGeometry: TiledScrollGeometry?
   @FocusState private var isInputFocused: Bool
+
+  init(loadPosition: LoadPosition = .end) {
+    self.loadPosition = loadPosition
+    self._scrollPosition = State(initialValue: TiledScrollPosition(
+      autoScrollsToBottomOnAppend: loadPosition == .end,
+      scrollsToBottomOnReplace: loadPosition == .end
+    ))
+  }
 
   private var isNearBottom: Bool {
     guard let geometry = scrollGeometry else { return true }
@@ -320,7 +371,7 @@ struct MessengerSwiftDataDemo: View {
     .onAppear {
       if store == nil {
         store = ChatStore(modelContext: modelContext)
-        store?.loadInitial()
+        store?.loadInitial(from: loadPosition)
       }
     }
   }
@@ -364,7 +415,10 @@ struct MessengerSwiftDataDemo: View {
         dataSource: store.dataSource,
         scrollPosition: $scrollPosition,
         onPrepend: {
-          store.loadMore()
+          store.loadOlder()
+        },
+        onAppend: {
+          store.loadNewer()
         }
       ) { message, _ in
         TiledCellContentWrapper(content: MessageBubbleWithStatusCell(item: message))
@@ -385,7 +439,10 @@ struct MessengerSwiftDataDemo: View {
       }
       .onTiledScrollGeometryChange { geometry in
         scrollGeometry = geometry
-        scrollPosition.autoScrollsToBottomOnAppend = isNearBottom
+        // Auto-scroll to bottom when near bottom and no newer messages
+        if !store.hasNewer {
+          scrollPosition.autoScrollsToBottomOnAppend = isNearBottom
+        }
       }
 
       // Scroll to bottom button
@@ -400,6 +457,25 @@ struct MessengerSwiftDataDemo: View {
         }
         .padding()
         .transition(.scale.combined(with: .opacity))
+      }
+    }
+    .safeAreaInset(edge: .top, spacing: 0) {
+      if store.hasMore || store.hasNewer {
+        HStack {
+          Text("Loaded: \(store.dataSource.items.count) / \(store.totalCount)")
+          Spacer()
+          if store.hasMore {
+            Text("↑ older")
+          }
+          if store.hasNewer {
+            Text("↓ newer")
+          }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .padding(.horizontal)
+        .padding(.vertical, 4)
+        .background(.bar)
       }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
