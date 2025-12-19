@@ -69,6 +69,7 @@ struct ChatView: View {
 
 ### Guides
 
+- <doc:Bidirectional-Loading>
 - <doc:Swipe-to-Reveal-Timestamps>
 
 ### Architecture

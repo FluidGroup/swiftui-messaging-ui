@@ -63,8 +63,6 @@ final class ChatStore {
 
   private let modelContext: ModelContext
   private(set) var dataSource = ListDataSource<ChatMessageItem>()
-  private(set) var hasMore = true
-  private(set) var hasNewer = false
   var isAutoReceiveEnabled = false
 
   // Window-based pagination
@@ -73,6 +71,9 @@ final class ChatStore {
   private var windowSize: Int = 0
   private let pageSize = 20
   private var autoReceiveTask: Task<Void, Never>?
+
+  var hasMore: Bool { windowStart > 0 }
+  var hasNewer: Bool { windowStart + windowSize < totalCount }
 
   init(modelContext: ModelContext) {
     self.modelContext = modelContext
@@ -136,9 +137,6 @@ final class ChatStore {
 
     let models = (try? modelContext.fetch(descriptor)) ?? []
     dataSource.apply(models.map(ChatMessageItem.init))
-
-    hasMore = windowStart > 0
-    hasNewer = windowStart + windowSize < totalCount
   }
 
   func sendMessage(text: String) {
@@ -274,8 +272,6 @@ final class ChatStore {
     windowStart = 0
     windowSize = 0
     dataSource.replace(with: [])
-    hasMore = false
-    hasNewer = false
   }
 }
 
