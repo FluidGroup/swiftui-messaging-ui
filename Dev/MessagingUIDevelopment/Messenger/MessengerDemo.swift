@@ -1,35 +1,37 @@
 //
-//  iMessageDemo.swift
+//  MessengerDemo.swift
 //  MessagingUIDevelopment
 //
-//  Created by Hiroshi Kimura on 2025/12/14.
+//  Simple messenger demo using TiledView.
 //
 
 import SwiftUI
 import MessagingUI
 
-// MARK: - iMessage Style Data
+// MARK: - Message Model
 
-struct Message: Identifiable, Hashable, Equatable, Sendable {
+struct Message: Identifiable, Hashable, Equatable, Sendable, MessageContent {
   let id: Int
   var text: String
   var isSentByMe: Bool
   var timestamp: Date
 }
 
+// MARK: - Sample Data Generator
+
 func generateConversation(count: Int, startId: Int) -> [Message] {
   let conversations: [(String, Bool)] = [
     ("Hey! How's it going?", false),
-    ("Pretty good! Just finished work 😊", true),
+    ("Pretty good! Just finished work", true),
     ("Nice! Any plans for tonight?", false),
     ("Not really, maybe watch a movie", true),
     ("Want to grab dinner?", false),
     ("Sure! Where?", true),
     ("How about that new Italian place?", false),
-    ("Sounds great 👍", true),
+    ("Sounds great", true),
     ("Cool, I'll make a reservation for 7pm", false),
     ("Perfect, see you there!", true),
-    ("Can't wait! 🍝", false),
+    ("Can't wait!", false),
     ("Me neither!", true),
   ]
 
@@ -45,52 +47,9 @@ func generateConversation(count: Int, startId: Int) -> [Message] {
   }
 }
 
-// MARK: - iMessage Bubble View
+// MARK: - MessengerDemo View
 
-struct MessageBubbleView: View {
-
-  let message: Message
-
-  var body: some View {
-    HStack {
-      if message.isSentByMe {
-        Spacer(minLength: 60)
-      }
-
-      VStack(alignment: message.isSentByMe ? .trailing : .leading, spacing: 2) {
-        Text(message.text)
-          .font(.body)
-          .foregroundStyle(message.isSentByMe ? .white : .primary)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
-          .background(
-            RoundedRectangle(cornerRadius: 18)
-              .fill(message.isSentByMe ? Color.blue : Color(.systemGray5))
-          )
-
-        Text(timeString(from: message.timestamp))
-          .font(.caption2)
-          .foregroundStyle(.secondary)
-      }
-
-      if !message.isSentByMe {
-        Spacer(minLength: 60)
-      }
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 2)
-  }
-
-  private func timeString(from date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.timeStyle = .short
-    return formatter.string(from: date)
-  }
-}
-
-// MARK: - iMessage Demo View
-
-struct iMessageDemo: View {
+struct MessengerDemo: View {
 
   @State private var dataSource = ListDataSource<Message>()
   @State private var scrollPosition = TiledScrollPosition()
@@ -107,6 +66,7 @@ struct iMessageDemo: View {
       ) { message, state in
         MessageBubbleView(message: message)
       }
+      .revealConfiguration(.default)
 
       Divider()
 
@@ -213,6 +173,6 @@ struct iMessageDemo: View {
 
 #Preview {
   NavigationStack {
-    iMessageDemo()
+    MessengerDemo()
   }
 }

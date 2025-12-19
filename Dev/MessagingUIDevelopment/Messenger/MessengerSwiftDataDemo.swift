@@ -1,8 +1,8 @@
 //
-//  iMessageSwiftDataDemo.swift
+//  MessengerSwiftDataDemo.swift
 //  MessagingUIDevelopment
 //
-//  Created by Hiroshi Kimura on 2025/12/14.
+//  Messenger demo with SwiftData persistence.
 //
 
 import SwiftUI
@@ -17,14 +17,6 @@ final class ChatMessageModel {
   var isSentByMe: Bool
   var timestamp: Date
   var status: MessageStatus
-
-  enum MessageStatus: Int, Codable {
-    case sending = 0
-    case sent = 1
-    case delivered = 2
-    case read = 3
-    case failed = 4
-  }
 
   init(
     text: String,
@@ -41,12 +33,12 @@ final class ChatMessageModel {
 
 // MARK: - ChatMessageItem (Identifiable & Equatable wrapper)
 
-struct ChatMessageItem: Identifiable, Equatable {
+struct ChatMessageItem: Identifiable, Equatable, MessageContentWithStatus {
   let id: PersistentIdentifier
   let text: String
   let isSentByMe: Bool
   let timestamp: Date
-  let status: ChatMessageModel.MessageStatus
+  let status: MessageStatus
 
   init(model: ChatMessageModel) {
     self.id = model.persistentModelID
@@ -54,89 +46,6 @@ struct ChatMessageItem: Identifiable, Equatable {
     self.isSentByMe = model.isSentByMe
     self.timestamp = model.timestamp
     self.status = model.status
-  }
-}
-
-// MARK: - iMessage Bubble View
-
-struct iMessageBubbleView: View {
-
-  let message: ChatMessageItem
-
-  private static let timeFormatter: DateFormatter = {
-    let formatter = DateFormatter()
-    formatter.timeStyle = .short
-    return formatter
-  }()
-
-  var body: some View {
-    HStack(alignment: .bottom, spacing: 4) {
-      if message.isSentByMe {
-        Spacer(minLength: 60)
-      }
-
-      VStack(alignment: message.isSentByMe ? .trailing : .leading, spacing: 2) {
-        Text(message.text)
-          .font(.body)
-          .foregroundStyle(message.isSentByMe ? .white : .primary)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 8)
-          .background(
-            RoundedRectangle(cornerRadius: 18)
-              .fill(bubbleColor)
-          )
-
-        HStack(spacing: 4) {
-          Text(Self.timeFormatter.string(from: message.timestamp))
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-
-          if message.isSentByMe {
-            statusIcon
-          }
-        }
-      }
-
-      if !message.isSentByMe {
-        Spacer(minLength: 60)
-      }
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 2)
-  }
-
-  private var bubbleColor: Color {
-    if message.isSentByMe {
-      return message.status == .failed ? .red : .blue
-    } else {
-      return Color(.systemGray5)
-    }
-  }
-
-  @ViewBuilder
-  private var statusIcon: some View {
-    switch message.status {
-    case .sending:
-      ProgressView()
-        .scaleEffect(0.5)
-        .frame(width: 12, height: 12)
-    case .sent:
-      Image(systemName: "checkmark")
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-    case .delivered:
-      Image(systemName: "checkmark")
-        .font(.caption2)
-        .foregroundStyle(.blue)
-    case .read:
-      Image(systemName: "checkmark.circle.fill")
-        .font(.caption2)
-        .foregroundStyle(.blue)
-    case .failed:
-      Image(systemName: "exclamationmark.circle.fill")
-        .font(.caption2)
-        .foregroundStyle(.red)
-    }
   }
 }
 
@@ -240,7 +149,7 @@ final class ChatStore {
     refreshFromDatabase()
   }
 
-  private func updateMessageStatus(id: PersistentIdentifier, status: ChatMessageModel.MessageStatus) {
+  private func updateMessageStatus(id: PersistentIdentifier, status: MessageStatus) {
     guard let message = modelContext.model(for: id) as? ChatMessageModel else { return }
     message.status = status
     try? modelContext.save()
@@ -269,10 +178,10 @@ final class ChatStore {
     "That sounds great!",
     "Let me know when you're free",
     "Sure thing!",
-    "I was thinking about what you said yesterday, and I think you're absolutely right. We should definitely go ahead with that plan. Let me know what time works best for you and I'll arrange everything.",
-    "Oh by the way, I ran into Sarah at the grocery store today and she was asking about you! She said she hasn't seen you in ages and wanted to catch up sometime. Should I give her your number?",
-    "Just finished watching that movie you recommended. Wow, what an incredible story! The plot twist at the end completely caught me off guard. Thanks for the suggestion!",
-    "Hey, quick question - do you remember the name of that restaurant we went to last month? The one with the amazing pasta? I want to take my parents there this weekend.",
+    "I was thinking about what you said yesterday, and I think you're absolutely right. We should definitely go ahead with that plan.",
+    "Oh by the way, I ran into Sarah at the grocery store today and she was asking about you!",
+    "Just finished watching that movie you recommended. Wow, what an incredible story!",
+    "Hey, quick question - do you remember the name of that restaurant we went to last month?",
   ]
 
   private static let outgoingReplies = [
@@ -326,9 +235,9 @@ final class ChatStore {
   }
 }
 
-// MARK: - iMessageSwiftDataDemo
+// MARK: - MessengerSwiftDataDemo
 
-struct iMessageSwiftDataDemo: View {
+struct MessengerSwiftDataDemo: View {
 
   @Environment(\.modelContext) private var modelContext
   @State private var store: ChatStore?
@@ -347,15 +256,11 @@ struct iMessageSwiftDataDemo: View {
 
   var body: some View {
     ZStack {
-      // Messages
       if let store {
         loadedContent(store: store)
       } else {
-        Spacer()
         ProgressView()
-        Spacer()
       }
-     
     }
     .navigationTitle("Messages")
     .navigationBarTitleDisplayMode(.inline)
@@ -403,7 +308,7 @@ struct iMessageSwiftDataDemo: View {
           } label: {
             Label("Clear All", systemImage: "trash")
           }
-          
+
           Button("Bottom") {
             scrollPosition.scrollTo(edge: .bottom, animated: true)
           }
@@ -419,10 +324,9 @@ struct iMessageSwiftDataDemo: View {
       }
     }
   }
-  
+
   @ViewBuilder
-  private var inputView: some View {    
-    // Input bar
+  private var inputView: some View {
     let content = HStack(spacing: 12) {
       TextField("Message", text: $inputText)
         .focused($isInputFocused)
@@ -430,7 +334,7 @@ struct iMessageSwiftDataDemo: View {
         .onSubmit {
           sendMessage()
         }
-      
+
       Button {
         sendMessage()
       } label: {
@@ -442,10 +346,10 @@ struct iMessageSwiftDataDemo: View {
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
-   
+
     if #available(iOS 26, *) {
       content
-        .glassEffect(.regular.interactive().tint(.clear))      
+        .glassEffect(.regular.interactive().tint(.clear))
         .padding()
     } else {
       content
@@ -453,18 +357,17 @@ struct iMessageSwiftDataDemo: View {
         .padding()
     }
   }
-  
+
   private func loadedContent(store: ChatStore) -> some View {
     ZStack(alignment: .bottomTrailing) {
-                  
-      TiledView(        
+      TiledView(
         dataSource: store.dataSource,
         scrollPosition: $scrollPosition,
         onPrepend: {
           store.loadMore()
         }
       ) { message, _ in
-        iMessageBubbleView(message: message)
+        MessageBubbleWithStatusView(message: message)
           .contextMenu {
             Button(role: .destructive) {
               store.deleteMessage(id: message.id)
@@ -473,7 +376,8 @@ struct iMessageSwiftDataDemo: View {
             }
           }
       }
-      .onDragIntoBottomSafeArea {        
+      .revealConfiguration(.default)
+      .onDragIntoBottomSafeArea {
         isInputFocused = false
       }
       .onTapBackground {
@@ -481,7 +385,6 @@ struct iMessageSwiftDataDemo: View {
       }
       .onTiledScrollGeometryChange { geometry in
         scrollGeometry = geometry
-        
         scrollPosition.autoScrollsToBottomOnAppend = isNearBottom
       }
 
@@ -498,18 +401,10 @@ struct iMessageSwiftDataDemo: View {
         .padding()
         .transition(.scale.combined(with: .opacity))
       }
-      
     }
-    .safeAreaInset(edge: .bottom, spacing: 0, content: {      
+    .safeAreaInset(edge: .bottom, spacing: 0) {
       inputView
-        .onGeometryChange(for: CGFloat.self) { proxy in
-          print(proxy.size)
-          return proxy.size.height - proxy.frame(in: .global).minY
-        } action: { newValue in
-          print("Input view minY: \(newValue)")
-        }
-
-    })
+    }
     .animation(.easeInOut(duration: 0.2), value: isNearBottom)
   }
 
@@ -526,7 +421,6 @@ struct iMessageSwiftDataDemo: View {
   let config = ModelConfiguration(isStoredInMemoryOnly: true)
   let container = try! ModelContainer(for: ChatMessageModel.self, configurations: config)
 
-  // Add sample conversation
   let context = container.mainContext
   let conversation: [(String, Bool)] = [
     ("Hey! How's it going?", false),
@@ -553,7 +447,7 @@ struct iMessageSwiftDataDemo: View {
   try? context.save()
 
   return NavigationStack {
-    iMessageSwiftDataDemo()
+    MessengerSwiftDataDemo()
   }
   .modelContainer(container)
 }
