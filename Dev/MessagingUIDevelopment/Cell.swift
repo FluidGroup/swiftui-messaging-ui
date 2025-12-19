@@ -1,4 +1,5 @@
 import SwiftUI
+import MessagingUI
 
 // MARK: - Sample Data
 
@@ -94,6 +95,40 @@ struct ChatBubbleView: View {
     .contentShape(Rectangle())  
     .padding(.horizontal, 16)
     .padding(.vertical, 4)
+  }
+}
+
+// MARK: - TiledCellContent Conforming Cell
+
+/// A cell wrapper conforming to TiledCellContent for use with TiledView
+struct ChatBubbleCell: TiledCellContent {
+
+  let item: ChatMessage
+
+  func body(context: CellContext) -> some View {
+    ChatBubbleView(message: item)
+  }
+}
+
+/// A cell wrapper with NavigationLink for use with TiledView
+struct ChatBubbleCellWithNavigation: TiledCellContent {
+
+  let item: ChatMessage
+  let namespace: Namespace.ID
+  let useMatchedTransition: Bool
+
+  @ViewBuilder
+  func body(context: CellContext) -> some View {
+    if #available(iOS 18.0, *), useMatchedTransition {
+      NavigationLink(value: item) {
+        ChatBubbleView(message: item)
+          .matchedTransitionSource(id: item.id, in: namespace)
+      }
+    } else {
+      NavigationLink(value: item) {
+        ChatBubbleView(message: item)
+      }
+    }
   }
 }
 

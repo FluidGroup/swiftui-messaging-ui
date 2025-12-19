@@ -129,10 +129,7 @@ struct BookTiledView: View {
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
         cellBuilder: { message, _ in
-          NavigationLink(value: message) {
-            ChatBubbleView(message: message)
-              .matchedTransitionSource(id: message.id, in: namespace)
-          }
+          ChatBubbleCellWithNavigation(item: message, namespace: namespace, useMatchedTransition: true)
         }
       )
     } else {
@@ -140,9 +137,7 @@ struct BookTiledView: View {
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
         cellBuilder: { message, _ in
-          NavigationLink(value: message) {
-            ChatBubbleView(message: message)
-          }
+          ChatBubbleCellWithNavigation(item: message, namespace: namespace, useMatchedTransition: false)
         }
       )
     }
@@ -266,30 +261,36 @@ struct BookTiledViewLoadingIndicator: View {
     TiledView(
       dataSource: dataSource,
       scrollPosition: $scrollPosition,
+      prependLoader: .loader(
+        perform: { /* triggered by button */ },
+        isProcessing: isPrependLoading
+      ) {
+        HStack {
+          ProgressView()
+          Text("Loading older messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+      },
+      appendLoader: .loader(
+        perform: { /* triggered by button */ },
+        isProcessing: isAppendLoading
+      ) {
+        HStack {
+          ProgressView()
+          Text("Loading newer messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+      },
       cellBuilder: { message, _ in
-        ChatBubbleView(message: message)
+        ChatBubbleCell(item: message)
       }
     )
-    .prependLoadingIndicator(isLoading: isPrependLoading) {
-      HStack {
-        ProgressView()
-        Text("Loading older messages...")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      .frame(maxWidth: .infinity)
-      .padding()
-    }
-    .appendLoadingIndicator(isLoading: isAppendLoading) {
-      HStack {
-        ProgressView()
-        Text("Loading newer messages...")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-      }
-      .frame(maxWidth: .infinity)
-      .padding()
-    }
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {
         Divider()

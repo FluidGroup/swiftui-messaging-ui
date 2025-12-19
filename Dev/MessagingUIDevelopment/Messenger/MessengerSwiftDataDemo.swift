@@ -49,6 +49,28 @@ struct ChatMessageItem: Identifiable, Equatable, MessageContentWithStatus {
   }
 }
 
+// MARK: - ChatMessageCell (with context menu)
+
+struct ChatMessageCell: TiledCellContent {
+
+  let item: ChatMessageItem
+  var onDelete: (() -> Void)?
+
+  func body(context: CellContext) -> some View {
+    MessageBubbleWithStatusCell(item: item)
+      .body(context: context)
+      .contextMenu {
+        if let onDelete {
+          Button(role: .destructive) {
+            onDelete()
+          } label: {
+            Label("Delete", systemImage: "trash")
+          }
+        }
+      }
+  }
+}
+
 // MARK: - LoadPosition
 
 enum LoadPosition {
@@ -71,10 +93,6 @@ final class ChatStore {
   private var windowSize: Int = 0
   private let pageSize = 20
   private var autoReceiveTask: Task<Void, Never>?
-
-  // Loading states
-  private(set) var isPrependLoading = false
-  private(set) var isAppendLoading = false
 
   var hasMore: Bool { windowStart > 0 }
   var hasNewer: Bool { windowStart + windowSize < totalCount }
@@ -116,30 +134,22 @@ final class ChatStore {
     refreshWindow()
   }
 
-  func loadOlder() {
-    guard hasMore, !isPrependLoading else { return }
-    isPrependLoading = true
-    Task { @MainActor in
-      try? await Task.sleep(for: .seconds(1))
-      let prepend = min(pageSize, windowStart)
-      windowStart -= prepend
-      windowSize += prepend
-      refreshWindow()
-      isPrependLoading = false
-    }
+  func loadOlder() async {
+    guard hasMore else { return }
+    try? await Task.sleep(for: .seconds(1))
+    let prepend = min(pageSize, windowStart)
+    windowStart -= prepend
+    windowSize += prepend
+    refreshWindow()
   }
 
-  func loadNewer() {
-    guard hasNewer, !isAppendLoading else { return }
-    isAppendLoading = true
-    Task { @MainActor in
-      try? await Task.sleep(for: .seconds(1))
-      let available = totalCount - (windowStart + windowSize)
-      let append = min(pageSize, available)
-      windowSize += append
-      refreshWindow()
-      isAppendLoading = false
-    }
+  func loadNewer() async {
+    guard hasNewer else { return }
+    try? await Task.sleep(for: .seconds(1))
+    let available = totalCount - (windowStart + windowSize)
+    let append = min(pageSize, available)
+    windowSize += append
+    refreshWindow()
   }
 
   private func refreshWindow() {
@@ -424,43 +434,36 @@ struct MessengerSwiftDataDemo: View {
       TiledView(
         dataSource: store.dataSource,
         scrollPosition: $scrollPosition,
-        onPrepend: {
-          store.loadOlder()
+        prependLoader: .loader(perform: {
+          await store.loadOlder()
+        }) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading older messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
         },
-        onAppend: {
-          store.loadNewer()
+        appendLoader: .loader(perform: {
+          await store.loadNewer()
+        }) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading newer messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
         }
       ) { message, _ in
-        TiledCellContentWrapper(content: MessageBubbleWithStatusCell(item: message))
-          .contextMenu {
-            Button(role: .destructive) {
-              store.deleteMessage(id: message.id)
-            } label: {
-              Label("Delete", systemImage: "trash")
-            }
-          }
+        ChatMessageCell(item: message) {
+          store.deleteMessage(id: message.id)
+        }
       }
       .revealConfiguration(.default)
-      .prependLoadingIndicator(isLoading: store.isPrependLoading) {
-        HStack(spacing: 8) {
-          ProgressView()
-          Text("Loading older messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-      }
-      .appendLoadingIndicator(isLoading: store.isAppendLoading) {
-        HStack(spacing: 8) {
-          ProgressView()
-          Text("Loading newer messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-      }
       .onDragIntoBottomSafeArea {
         isInputFocused = false
       }

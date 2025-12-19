@@ -83,6 +83,18 @@ struct MemoBubbleView: View {
   }
 }
 
+// MARK: - MemoBubbleCell (TiledCellContent)
+
+struct MemoBubbleCell: TiledCellContent {
+
+  let item: MemoItem
+  var onDelete: (() -> Void)?
+
+  func body(context: CellContext) -> some View {
+    MemoBubbleView(item: item, onDelete: onDelete)
+  }
+}
+
 // MARK: - MemoStore (using applyDiff)
 
 @Observable
@@ -245,15 +257,16 @@ struct SwiftDataMemoDemo: View {
         TiledView(
           dataSource: store.dataSource,
           scrollPosition: $scrollPosition,
-          onPrepend: {
+          prependLoader: .loader(perform: {
             store.loadMore()
-          },
-          cellBuilder: { item, _ in
-            MemoBubbleView(item: item) {
-              store.deleteMemo(id: item.id)
-            }
+          }, isProcessing: false) {
+            EmptyView()
           }
-        )
+        ) { item, _ in
+          MemoBubbleCell(item: item) {
+            store.deleteMemo(id: item.id)
+          }
+        }
       } else {
         Spacer()
         ProgressView()

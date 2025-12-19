@@ -64,31 +64,37 @@ struct MessengerDemo: View {
       // Messages
       TiledView(
         dataSource: dataSource,
-        scrollPosition: $scrollPosition
-      ) { message, state in
+        scrollPosition: $scrollPosition,
+        prependLoader: .loader(
+          perform: { /* triggered by button */ },
+          isProcessing: isPrependLoading
+        ) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading older messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        },
+        appendLoader: .loader(
+          perform: { /* triggered by button */ },
+          isProcessing: isAppendLoading
+        ) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading newer messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        }
+      ) { message, _ in
         MessageBubbleCell(item: message)
       }
       .revealConfiguration(.default)
-      .prependLoadingIndicator(isLoading: isPrependLoading) {
-        HStack(spacing: 8) {
-          ProgressView()
-          Text("Loading older messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-      }
-      .appendLoadingIndicator(isLoading: isAppendLoading) {
-        HStack(spacing: 8) {
-          ProgressView()
-          Text("Loading newer messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-      }
 
       Divider()
 
