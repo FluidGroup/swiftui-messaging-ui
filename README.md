@@ -31,10 +31,8 @@ This library takes a different approach: a **virtual content layout** with a 100
 ## Key Features
 
 - **Smooth Prepend/Append** - No scroll jumps when loading older or newer messages
-- **Change Tracking** - Efficient incremental updates without full reloads
-- **UICollectionView Performance** - Native recycling with SwiftUI cell rendering
+- **UICollectionView-backed** - Native recycling with SwiftUI cell rendering
 - **Self-Sizing Cells** - Automatic height calculation for variable content
-- **Per-Cell State** - Manage UI state (expansion, selection) separately from data
 - **Keyboard & Safe Area Handling** - Automatic content inset adjustment for keyboard and safe areas
 
 ## Requirements
