@@ -185,7 +185,7 @@ struct BookApplyDiffDemo: View {
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
         cellBuilder: { message, _ in
-          ChatBubbleView(message: message)
+          ChatBubbleCell(item: message)
         }
       )
     }

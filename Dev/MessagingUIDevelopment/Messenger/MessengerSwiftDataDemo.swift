@@ -49,6 +49,28 @@ struct ChatMessageItem: Identifiable, Equatable, MessageContentWithStatus {
   }
 }
 
+// MARK: - ChatMessageCell (with context menu)
+
+struct ChatMessageCell: TiledCellContent {
+
+  let item: ChatMessageItem
+  var onDelete: (() -> Void)?
+
+  func body(context: CellContext) -> some View {
+    MessageBubbleWithStatusCell(item: item)
+      .body(context: context)
+      .contextMenu {
+        if let onDelete {
+          Button(role: .destructive) {
+            onDelete()
+          } label: {
+            Label("Delete", systemImage: "trash")
+          }
+        }
+      }
+  }
+}
+
 // MARK: - LoadPosition
 
 enum LoadPosition {
@@ -112,16 +134,18 @@ final class ChatStore {
     refreshWindow()
   }
 
-  func loadOlder() {
+  func loadOlder() async {
     guard hasMore else { return }
+    try? await Task.sleep(for: .seconds(1))
     let prepend = min(pageSize, windowStart)
     windowStart -= prepend
     windowSize += prepend
     refreshWindow()
   }
 
-  func loadNewer() {
+  func loadNewer() async {
     guard hasNewer else { return }
+    try? await Task.sleep(for: .seconds(1))
     let available = totalCount - (windowStart + windowSize)
     let append = min(pageSize, available)
     windowSize += append
@@ -410,21 +434,34 @@ struct MessengerSwiftDataDemo: View {
       TiledView(
         dataSource: store.dataSource,
         scrollPosition: $scrollPosition,
-        onPrepend: {
-          store.loadOlder()
+        prependLoader: .loader(perform: {
+          await store.loadOlder()
+        }) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading older messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
         },
-        onAppend: {
-          store.loadNewer()
+        appendLoader: .loader(perform: {
+          await store.loadNewer()
+        }) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading newer messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
         }
       ) { message, _ in
-        TiledCellContentWrapper(content: MessageBubbleWithStatusCell(item: message))
-          .contextMenu {
-            Button(role: .destructive) {
-              store.deleteMessage(id: message.id)
-            } label: {
-              Label("Delete", systemImage: "trash")
-            }
-          }
+        ChatMessageCell(item: message) {
+          store.deleteMessage(id: message.id)
+        }
       }
       .revealConfiguration(.default)
       .onDragIntoBottomSafeArea {
@@ -453,25 +490,6 @@ struct MessengerSwiftDataDemo: View {
         }
         .padding()
         .transition(.scale.combined(with: .opacity))
-      }
-    }
-    .safeAreaInset(edge: .top, spacing: 0) {
-      if store.hasMore || store.hasNewer {
-        HStack {
-          Text("Loaded: \(store.dataSource.items.count) / \(store.totalCount)")
-          Spacer()
-          if store.hasMore {
-            Text("↑ older")
-          }
-          if store.hasNewer {
-            Text("↓ newer")
-          }
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal)
-        .padding(.vertical, 4)
-        .background(.bar)
       }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {

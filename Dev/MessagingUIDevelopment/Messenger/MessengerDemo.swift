@@ -56,14 +56,42 @@ struct MessengerDemo: View {
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
   @State private var inputText = ""
+  @State private var isPrependLoading = false
+  @State private var isAppendLoading = false
 
   var body: some View {
     VStack(spacing: 0) {
       // Messages
       TiledView(
         dataSource: dataSource,
-        scrollPosition: $scrollPosition
-      ) { message, state in
+        scrollPosition: $scrollPosition,
+        prependLoader: .loader(
+          perform: { /* triggered by button */ },
+          isProcessing: isPrependLoading
+        ) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading older messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        },
+        appendLoader: .loader(
+          perform: { /* triggered by button */ },
+          isProcessing: isAppendLoading
+        ) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading newer messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        }
+      ) { message, _ in
         MessageBubbleCell(item: message)
       }
       .revealConfiguration(.default)
@@ -152,15 +180,27 @@ struct MessengerDemo: View {
   }
 
   private func loadOlderMessages() {
-    let messages = generateConversation(count: 5, startId: nextPrependId - 4)
-    dataSource.prepend(messages)
-    nextPrependId -= 5
+    guard !isPrependLoading else { return }
+    isPrependLoading = true
+    Task {
+      try? await Task.sleep(for: .seconds(1))
+      let messages = generateConversation(count: 5, startId: nextPrependId - 4)
+      dataSource.prepend(messages)
+      nextPrependId -= 5
+      isPrependLoading = false
+    }
   }
 
   private func loadNewerMessages() {
-    let messages = generateConversation(count: 5, startId: nextAppendId)
-    dataSource.append(messages)
-    nextAppendId += 5
+    guard !isAppendLoading else { return }
+    isAppendLoading = true
+    Task {
+      try? await Task.sleep(for: .seconds(1))
+      let messages = generateConversation(count: 5, startId: nextAppendId)
+      dataSource.append(messages)
+      nextAppendId += 5
+      isAppendLoading = false
+    }
   }
 
   private func resetConversation() {

@@ -46,70 +46,10 @@ fileprivate extension UIEdgeInsets {
   }
 }
 
-// MARK: - TiledViewCell
-
-final class TiledViewCell: UICollectionViewCell {
-
-  static let reuseIdentifier = "TiledViewCell"
-
-  /// Custom state for this cell
-  var customState: CellState = .empty
-
-  /// Handler called when state changes to update content
-  var _updateConfigurationHandler:
-    @MainActor (TiledViewCell, CellState) -> Void = { _, _ in }
-
-  func configure<Content: View>(with content: Content, cellReveal: CellReveal? = nil) {
-    contentConfiguration = UIHostingConfiguration {
-      content
-        .environment(\.cellReveal, cellReveal)
-    }
-    .margins(.all, 0)
-  }
-
-  /// Update cell content with new state
-  func updateContent(using customState: CellState) {
-    self.customState = customState
-    _updateConfigurationHandler(self, customState)
-  }
-
-  override func prepareForReuse() {
-    super.prepareForReuse()
-    contentConfiguration = nil
-    customState = .empty
-    _updateConfigurationHandler = { _, _ in }
-  }
-
-  override func preferredLayoutAttributesFitting(
-    _ layoutAttributes: UICollectionViewLayoutAttributes
-  ) -> UICollectionViewLayoutAttributes {
-    let attributes = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
-
-    // MagazineLayout方式: contentViewの幅をlayoutAttributesと同期
-    if contentView.bounds.width != layoutAttributes.size.width {
-      contentView.bounds.size.width = layoutAttributes.size.width
-    }
-
-    let targetSize = CGSize(
-      width: layoutAttributes.frame.width,
-      height: UIView.layoutFittingCompressedSize.height
-    )
-
-    let size = contentView.systemLayoutSizeFitting(
-      targetSize,
-      withHorizontalFittingPriority: .required,
-      verticalFittingPriority: .fittingSizeLevel
-    )
-
-    attributes.frame.size.height = size.height
-    return attributes
-  }
-}
-
 // MARK: - EdgeLoadTrigger
 
 /// Encapsulates state for edge-triggered loading (prepend/append).
-private struct EdgeLoadTrigger: ~Copyable {
+private struct EdgeLoadTrigger<Indicator: View>: ~Copyable {
 
   /// Whether the trigger has been activated
   var isTriggered: Bool = false
@@ -120,8 +60,20 @@ private struct EdgeLoadTrigger: ~Copyable {
   /// Currently running load task
   var task: Task<Void, Never>?
 
+  /// Loader configuration
+  var loader: Loader<Indicator>?
+
   init(threshold: CGFloat = 100) {
     self.threshold = threshold
+  }
+
+  /// Whether loading is in progress
+  var isLoading: Bool {
+    guard let loader else { return false }
+    if let isProcessing = loader.isProcessing {
+      return isProcessing  // sync mode: use external state
+    }
+    return task != nil  // async mode: task is running
   }
 }
 
@@ -149,9 +101,106 @@ private struct RevealGestureState: ~Copyable {
   }
 }
 
+// MARK: - Loader
+
+/// Configuration for edge loading with indicator view.
+///
+/// Use this to configure prepend/append loading behavior with a visual indicator.
+///
+/// Two modes are supported:
+/// - **Async mode**: Loading state is auto-managed internally
+/// - **Sync mode**: Loading state is provided externally via `isProcessing`
+///
+/// ```swift
+/// // Async mode (auto-managed loading state)
+/// TiledView(
+///   dataSource: dataSource,
+///   scrollPosition: $scrollPosition,
+///   prependLoader: .loader(perform: {
+///     await store.loadOlder()
+///   }) {
+///     ProgressView()
+///   }
+/// )
+///
+/// // Sync mode (manual loading state)
+/// TiledView(
+///   ...
+///   prependLoader: .loader(
+///     perform: { store.loadOlder() },
+///     isProcessing: store.isPrependLoading
+///   ) {
+///     ProgressView()
+///   }
+/// )
+/// ```
+public struct Loader<Indicator: View> {
+
+  enum PerformAction: Sendable {
+    case async(@Sendable @MainActor () async -> Void)
+    case sync(@Sendable @MainActor () -> Void)
+  }
+
+  let perform: PerformAction
+  /// nil means auto-managed (async mode), non-nil means externally provided (sync mode)
+  let isProcessing: Bool?
+  let indicator: Indicator
+
+  /// Creates a loader with async perform action (auto-managed loading state).
+  ///
+  /// The loading state is automatically managed internally - it becomes true when
+  /// perform starts and false when it completes.
+  ///
+  /// - Parameters:
+  ///   - perform: Async action to execute when edge is reached
+  ///   - indicator: View to display while loading
+  public static func loader(
+    perform: @escaping @Sendable @MainActor () async -> Void,
+    @ViewBuilder indicator: () -> Indicator
+  ) -> Self {
+    Loader(perform: .async(perform), isProcessing: nil, indicator: indicator())
+  }
+
+  /// Creates a loader with sync perform action and external loading state.
+  ///
+  /// Use this when you manage loading state externally (e.g., in your store/viewmodel).
+  ///
+  /// - Parameters:
+  ///   - perform: Sync action to execute when edge is reached
+  ///   - isProcessing: External loading state binding
+  ///   - indicator: View to display while loading
+  public static func loader(
+    perform: @escaping @Sendable @MainActor () -> Void,
+    isProcessing: Bool,
+    @ViewBuilder indicator: () -> Indicator
+  ) -> Self {
+    Loader(perform: .sync(perform), isProcessing: isProcessing, indicator: indicator())
+  }
+}
+
+extension Optional where Wrapped == Loader<Never> {
+  /// A disabled loader that does nothing.
+  ///
+  /// Use this when you need to specify a loader parameter but don't want any loading behavior.
+  /// ```swift
+  /// TiledView(
+  ///   dataSource: dataSource,
+  ///   scrollPosition: $scrollPosition,
+  ///   prependLoader: .loader(perform: { ... }) { ... },
+  ///   appendLoader: .disabled  // No append loading
+  /// ) { ... }
+  /// ```
+  public static var disabled: Loader<Never>? { nil }
+}
+
 // MARK: - _TiledView
 
-final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
+final class _TiledView<
+  Item: Identifiable & Equatable,
+  Cell: View,
+  PrependLoadingView: View,
+  AppendLoadingView: View
+>: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
 
   private let tiledLayout: TiledCollectionViewLayout = .init()
   private var collectionView: UICollectionView!
@@ -167,8 +216,8 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   private var appliedCursor: Int = 0
 
   /// Edge load triggers
-  private var prependTrigger = EdgeLoadTrigger()
-  private var appendTrigger = EdgeLoadTrigger()
+  private var prependTrigger = EdgeLoadTrigger<PrependLoadingView>()
+  private var appendTrigger = EdgeLoadTrigger<AppendLoadingView>()
 
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
@@ -211,6 +260,32 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
   /// State for swipe-to-reveal gesture handling
   private var revealGestureState = RevealGestureState()
 
+  // MARK: - Loading
+
+  /// Sets loaders and updates visibility if loading states changed.
+  func setLoaders(
+    prepend: Loader<PrependLoadingView>?,
+    append: Loader<AppendLoadingView>?
+  ) {
+    let oldPrependLoading = prependTrigger.isLoading
+    let oldAppendLoading = appendTrigger.isLoading
+
+    prependTrigger.loader = prepend
+    appendTrigger.loader = append
+
+    let newPrependLoading = prependTrigger.isLoading
+    let newAppendLoading = appendTrigger.isLoading
+
+    guard oldPrependLoading != newPrependLoading || oldAppendLoading != newAppendLoading else {
+      return
+    }
+
+    updateLoadingIndicatorVisibility()
+  }
+
+  /// Prototype view for measuring loading indicator size
+  private let sizingLoadingIndicator = TiledLoadingIndicatorView()
+
   /// Additional content inset for keyboard, headers, footers, etc.
   var additionalContentInset: EdgeInsets = .init() {
     didSet {
@@ -235,7 +310,6 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
 
     let combined = additionalContentInset + swiftUIWorldSafeAreaInset
     let uiEdgeInsets = combined.toUIEdgeInsets(layoutDirection: effectiveUserInterfaceLayoutDirection) - safeAreaInsets
-
     // Calculate delta before applying changes
     // Delta = new additionalContentInset.bottom - old additionalContentInset.bottom
     let oldAdditionalBottom = tiledLayout.additionalContentInset.bottom
@@ -302,17 +376,10 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
 
   typealias DataSource = ListDataSource<Item>
 
-  let onPrepend: (@MainActor () async throws -> Void)?
-  let onAppend: (@MainActor () async throws -> Void)?
-
   init(
-    cellBuilder: @escaping (Item, CellState) -> Cell,
-    onPrepend: (@MainActor () async throws -> Void)? = nil,
-    onAppend: (@MainActor () async throws -> Void)? = nil
+    cellBuilder: @escaping (Item, CellState) -> Cell
   ) {
     self.cellBuilder = cellBuilder
-    self.onPrepend = onPrepend
-    self.onAppend = onAppend
     super.init(frame: .zero)
 
     do {
@@ -333,6 +400,18 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
       collectionView.isPrefetchingEnabled = false
       
       collectionView.register(TiledViewCell.self, forCellWithReuseIdentifier: TiledViewCell.reuseIdentifier)
+
+      // Register supplementary views for loading indicators
+      collectionView.register(
+        TiledLoadingIndicatorView.self,
+        forSupplementaryViewOfKind: TiledLoadingIndicatorView.headerKind,
+        withReuseIdentifier: TiledLoadingIndicatorView.reuseIdentifier
+      )
+      collectionView.register(
+        TiledLoadingIndicatorView.self,
+        forSupplementaryViewOfKind: TiledLoadingIndicatorView.footerKind,
+        withReuseIdentifier: TiledLoadingIndicatorView.reuseIdentifier
+      )
 
       let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapBackground(_:)))
       tapGesture.cancelsTouchesInView = false
@@ -561,6 +640,33 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     return cell
   }
 
+  func collectionView(
+    _ collectionView: UICollectionView,
+    viewForSupplementaryElementOfKind kind: String,
+    at indexPath: IndexPath
+  ) -> UICollectionReusableView {
+    let view = collectionView.dequeueReusableSupplementaryView(
+      ofKind: kind,
+      withReuseIdentifier: TiledLoadingIndicatorView.reuseIdentifier,
+      for: indexPath
+    ) as! TiledLoadingIndicatorView
+
+    switch kind {
+    case TiledLoadingIndicatorView.headerKind:
+      if let loader = prependTrigger.loader {
+        view.configure(with: loader.indicator)
+      }
+    case TiledLoadingIndicatorView.footerKind:
+      if let loader = appendTrigger.loader {
+        view.configure(with: loader.indicator)
+      }
+    default:
+      break
+    }
+
+    return view
+  }
+
   // MARK: UICollectionViewDelegate
 
   func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -574,12 +680,9 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     // Prepend trigger
     let offsetY = scrollView.contentOffset.y + scrollView.contentInset.top
     if offsetY <= prependTrigger.threshold {
-      if !prependTrigger.isTriggered && prependTrigger.task == nil {
+      if !prependTrigger.isTriggered && !prependTrigger.isLoading {
         prependTrigger.isTriggered = true
-        prependTrigger.task = Task { @MainActor [weak self] in
-          defer { self?.prependTrigger.task = nil }
-          try? await self?.onPrepend?()
-        }
+        triggerPrependLoad()
       }
     } else {
       prependTrigger.isTriggered = false
@@ -589,12 +692,9 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     let maxOffsetY = scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
     let distanceFromBottom = max(0, maxOffsetY - scrollView.contentOffset.y)
     if distanceFromBottom <= appendTrigger.threshold {
-      if !appendTrigger.isTriggered && appendTrigger.task == nil {
+      if !appendTrigger.isTriggered && !appendTrigger.isLoading {
         appendTrigger.isTriggered = true
-        appendTrigger.task = Task { @MainActor [weak self] in
-          defer { self?.appendTrigger.task = nil }
-          try? await self?.onAppend?()
-        }
+        triggerAppendLoad()
       }
     } else {
       appendTrigger.isTriggered = false
@@ -606,6 +706,46 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     }
 
     notifyScrollGeometry()
+  }
+
+  private func triggerPrependLoad() {
+    guard let loader = prependTrigger.loader else { return }
+
+    switch loader.perform {
+    case .async(let perform):
+      // task != nil indicates loading state
+      prependTrigger.task = Task { @MainActor [weak self] in
+        defer {
+          self?.prependTrigger.task = nil
+          self?.updateLoadingIndicatorVisibility()
+        }
+        self?.updateLoadingIndicatorVisibility()
+        await perform()
+      }
+    case .sync(let perform):
+      // External loading state management via isProcessing
+      perform()
+    }
+  }
+
+  private func triggerAppendLoad() {
+    guard let loader = appendTrigger.loader else { return }
+
+    switch loader.perform {
+    case .async(let perform):
+      // task != nil indicates loading state
+      appendTrigger.task = Task { @MainActor [weak self] in
+        defer {
+          self?.appendTrigger.task = nil
+          self?.updateLoadingIndicatorVisibility()
+        }
+        self?.updateLoadingIndicatorVisibility()
+        await perform()
+      }
+    case .sync(let perform):
+      // External loading state management via isProcessing
+      perform()
+    }
   }
 
   func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -837,67 +977,120 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
       }
     }
   }
+
+  // MARK: - Loading Indicator Management
+
+  private func updateLoadingIndicatorVisibility() {
+    guard collectionView != nil else { return }
+
+    let boundsWidth = bounds.width
+
+    // Measure header size
+    let headerHeight: CGFloat
+    if prependTrigger.isLoading, let loader = prependTrigger.loader {
+      headerHeight = measureLoadingIndicatorSize(loader.indicator, width: boundsWidth).height
+    } else {
+      headerHeight = 0
+    }
+
+    // Measure footer size
+    let footerHeight: CGFloat
+    if appendTrigger.isLoading, let loader = appendTrigger.loader {
+      footerHeight = measureLoadingIndicatorSize(loader.indicator, width: boundsWidth).height
+    } else {
+      footerHeight = 0
+    }
+
+    // Update layout
+    tiledLayout.headerSize = CGSize(width: boundsWidth, height: headerHeight)
+    tiledLayout.footerSize = CGSize(width: boundsWidth, height: footerHeight)
+    tiledLayout.invalidateLayout()
+  }
+
+  private func measureLoadingIndicatorSize<V: View>(_ view: V, width: CGFloat) -> CGSize {
+    sizingLoadingIndicator.configure(with: view)
+    sizingLoadingIndicator.bounds.size.width = width
+    sizingLoadingIndicator.layoutIfNeeded()
+
+    let targetSize = CGSize(
+      width: width,
+      height: UIView.layoutFittingCompressedSize.height
+    )
+
+    let size = sizingLoadingIndicator.systemLayoutSizeFitting(
+      targetSize,
+      withHorizontalFittingPriority: .required,
+      verticalFittingPriority: .fittingSizeLevel
+    )
+
+    return size
+  }
 }
 
 // MARK: - TiledViewRepresentable
 
 /// UIViewRepresentable implementation for TiledView.
 /// Use ``TiledView`` for the public SwiftUI interface.
-struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIViewRepresentable {
+struct TiledViewRepresentable<
+  Item: Identifiable & Equatable,
+  Cell: View,
+  PrependLoadingView: View,
+  AppendLoadingView: View
+>: UIViewRepresentable {
 
-  typealias UIViewType = _TiledView<Item, Cell>
+  typealias UIViewType = _TiledView<Item, Cell, PrependLoadingView, AppendLoadingView>
 
   let dataSource: ListDataSource<Item>
   let cellBuilder: (Item, CellState) -> Cell
   let cellStates: [Item.ID: CellState]?
-  let onPrepend: (@MainActor () async throws -> Void)?
-  let onAppend: (@MainActor () async throws -> Void)?
   let onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   let onTapBackground: (() -> Void)?
   let onDragIntoBottomSafeArea: (() -> Void)?
   let additionalContentInset: EdgeInsets
   let swiftUIWorldSafeAreaInset: EdgeInsets
   let revealConfiguration: RevealConfiguration
+  let prependLoader: Loader<PrependLoadingView>?
+  let appendLoader: Loader<AppendLoadingView>?
   @Binding var scrollPosition: TiledScrollPosition
 
   init(
     dataSource: ListDataSource<Item>,
     scrollPosition: Binding<TiledScrollPosition>,
     cellStates: [Item.ID: CellState]? = nil,
-    onPrepend: (@MainActor () async throws -> Void)? = nil,
-    onAppend: (@MainActor () async throws -> Void)? = nil,
     onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)? = nil,
     onTapBackground: (() -> Void)? = nil,
     onDragIntoBottomSafeArea: (() -> Void)? = nil,
     additionalContentInset: EdgeInsets = .init(),
     swiftUIWorldSafeAreaInset: EdgeInsets = .init(),
     revealConfiguration: RevealConfiguration = .default,
+    prependLoader: Loader<PrependLoadingView>?,
+    appendLoader: Loader<AppendLoadingView>?,
     @ViewBuilder cellBuilder: @escaping (Item, CellState) -> Cell
   ) {
     self.dataSource = dataSource
     self._scrollPosition = scrollPosition
     self.cellStates = cellStates
-    self.onPrepend = onPrepend
-    self.onAppend = onAppend
     self.onTiledScrollGeometryChange = onTiledScrollGeometryChange
     self.onTapBackground = onTapBackground
     self.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
     self.additionalContentInset = additionalContentInset
     self.swiftUIWorldSafeAreaInset = swiftUIWorldSafeAreaInset
     self.revealConfiguration = revealConfiguration
+    self.prependLoader = prependLoader
+    self.appendLoader = appendLoader
     self.cellBuilder = cellBuilder
   }
 
-  func makeUIView(context: Context) -> _TiledView<Item, Cell> {
-    let view = _TiledView(cellBuilder: cellBuilder, onPrepend: onPrepend, onAppend: onAppend)
+  func makeUIView(context: Context) -> UIViewType {
+    let view = UIViewType(cellBuilder: cellBuilder)
     updateUIView(view, context: context)
     return view
   }
 
-  func updateUIView(_ uiView: _TiledView<Item, Cell>, context: Context) {
-    
+  func updateUIView(_ uiView: UIViewType, context: Context) {
+
     if #available(iOS 18.0, *) {
-      context.animate { 
+      context.animate {
         uiView.additionalContentInset = additionalContentInset
         uiView.swiftUIWorldSafeAreaInset = swiftUIWorldSafeAreaInset
       }
@@ -905,7 +1098,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
       uiView.additionalContentInset = additionalContentInset
       uiView.swiftUIWorldSafeAreaInset = swiftUIWorldSafeAreaInset
     }
-    
+
     uiView.autoScrollsToBottomOnAppend = scrollPosition.autoScrollsToBottomOnAppend
     uiView.scrollsToBottomOnReplace = scrollPosition.scrollsToBottomOnReplace
     uiView.onTiledScrollGeometryChange = onTiledScrollGeometryChange.map { perform in
@@ -915,10 +1108,13 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
         }
       }
     }
-    
+
     uiView.onTapBackground = onTapBackground
     uiView.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
     uiView.revealConfiguration = revealConfiguration
+
+    // Update loaders
+    uiView.setLoaders(prepend: prependLoader, append: appendLoader)
 
     uiView.applyDataSource(dataSource)
     uiView.applyScrollPosition(scrollPosition)
@@ -1070,41 +1266,58 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
 ///
 /// Content bounds are exposed via negative contentInset values, which mask
 /// the unused virtual space above/below the actual content.
-public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
-  
+public struct TiledView<
+  Item: Identifiable & Equatable,
+  Cell: View,
+  PrependLoadingView: View,
+  AppendLoadingView: View
+>: View {
+
   let dataSource: ListDataSource<Item>
   let cellBuilder: (Item, CellState) -> Cell
   let cellStates: [Item.ID: CellState]?
-  let onPrepend: (@MainActor () async throws -> Void)?
-  let onAppend: (@MainActor () async throws -> Void)?
   var onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   var onTapBackground: (() -> Void)?
   var onDragIntoBottomSafeArea: (() -> Void)?
   var additionalContentInset: EdgeInsets = .init()
   var revealConfiguration: RevealConfiguration = .default
+  let prependLoader: Loader<PrependLoadingView>?
+  let appendLoader: Loader<AppendLoadingView>?
   @Binding var scrollPosition: TiledScrollPosition
 
-  public init(
+  /// Internal initializer for creating TiledView with all parameters (used by modifiers)
+  init(
     dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    cellStates: [Item.ID: CellState]? = nil,
-    onPrepend: (@MainActor () async throws -> Void)? = nil,
-    onAppend: (@MainActor () async throws -> Void)? = nil,
-    @ViewBuilder cellBuilder: @escaping (Item, CellState) -> Cell
+    cellBuilder: @escaping (Item, CellState) -> Cell,
+    cellStates: [Item.ID: CellState]?,
+    onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?,
+    onTapBackground: (() -> Void)?,
+    onDragIntoBottomSafeArea: (() -> Void)?,
+    additionalContentInset: EdgeInsets,
+    revealConfiguration: RevealConfiguration,
+    prependLoader: Loader<PrependLoadingView>?,
+    appendLoader: Loader<AppendLoadingView>?,
+    scrollPosition: Binding<TiledScrollPosition>
   ) {
     self.dataSource = dataSource
-    self._scrollPosition = scrollPosition
-    self.cellStates = cellStates
-    self.onPrepend = onPrepend
-    self.onAppend = onAppend
     self.cellBuilder = cellBuilder
+    self.cellStates = cellStates
+    self.onTiledScrollGeometryChange = onTiledScrollGeometryChange
+    self.onTapBackground = onTapBackground
+    self.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
+    self.additionalContentInset = additionalContentInset
+    self.revealConfiguration = revealConfiguration
+    self.prependLoader = prependLoader
+    self.appendLoader = appendLoader
+    self._scrollPosition = scrollPosition
   }
+}
 
-  /// Creates a TiledView with a cell content builder that receives context.
-  ///
-  /// Use this initializer when your cell needs access to reveal offset or other
-  /// context-based state. The `TiledCellContent` protocol provides a `body(context:)`
-  /// method that receives a `CellContext` with reveal offset information.
+// MARK: - Init without loaders
+
+extension TiledView where PrependLoadingView == Never, AppendLoadingView == Never {
+
+  /// Creates a TiledView without loaders.
   ///
   /// ```swift
   /// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message, state in
@@ -1116,27 +1329,158 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
   ///   - dataSource: The data source containing items to display.
   ///   - scrollPosition: Binding to control scroll position.
   ///   - cellStates: Optional per-cell state storage.
-  ///   - onPrepend: Optional callback when scrolling near the top.
   ///   - cellBuilder: A closure that returns a `TiledCellContent` for each item.
   public init<CellContent: TiledCellContent>(
     dataSource: ListDataSource<Item>,
     scrollPosition: Binding<TiledScrollPosition>,
     cellStates: [Item.ID: CellState]? = nil,
-    onPrepend: (@MainActor () async throws -> Void)? = nil,
-    onAppend: (@MainActor () async throws -> Void)? = nil,
     cellBuilder: @escaping (Item, CellState) -> CellContent
   ) where Cell == TiledCellContentWrapper<CellContent> {
     self.dataSource = dataSource
     self._scrollPosition = scrollPosition
     self.cellStates = cellStates
-    self.onPrepend = onPrepend
-    self.onAppend = onAppend
-    // Wrap the TiledCellContent in a View using TiledCellContentWrapper
-    // The wrapper reads cellReveal from Environment at render time
+    self.prependLoader = nil
+    self.appendLoader = nil
     self.cellBuilder = { item, state in
       TiledCellContentWrapper(content: cellBuilder(item, state))
     }
   }
+}
+
+// MARK: - Init with loaders
+
+extension TiledView {
+
+  /// Creates a TiledView with prepend and/or append loaders.
+  ///
+  /// Use this initializer when you need infinite scrolling with loading indicators.
+  ///
+  /// ```swift
+  /// TiledView(
+  ///   dataSource: dataSource,
+  ///   scrollPosition: $scrollPosition,
+  ///   prependLoader: .loader(perform: {
+  ///     await store.loadOlder()
+  ///   }) {
+  ///     ProgressView()
+  ///   },
+  ///   appendLoader: .loader(perform: {
+  ///     await store.loadNewer()
+  ///   }) {
+  ///     ProgressView()
+  ///   }
+  /// ) { message, state in
+  ///   MessageBubbleView(message: message)
+  /// }
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - dataSource: The data source containing items to display.
+  ///   - scrollPosition: Binding to control scroll position.
+  ///   - cellStates: Optional per-cell state storage.
+  ///   - prependLoader: Optional loader for prepend/load-older operations.
+  ///   - appendLoader: Optional loader for append/load-newer operations.
+  ///   - cellBuilder: A closure that returns a `TiledCellContent` for each item.
+  public init<CellContent: TiledCellContent>(
+    dataSource: ListDataSource<Item>,
+    scrollPosition: Binding<TiledScrollPosition>,
+    cellStates: [Item.ID: CellState]? = nil,
+    prependLoader: Loader<PrependLoadingView>?,
+    appendLoader: Loader<AppendLoadingView>?,
+    cellBuilder: @escaping (Item, CellState) -> CellContent
+  ) where Cell == TiledCellContentWrapper<CellContent> {
+    self.dataSource = dataSource
+    self._scrollPosition = scrollPosition
+    self.cellStates = cellStates
+    self.prependLoader = prependLoader
+    self.appendLoader = appendLoader
+    self.cellBuilder = { item, state in
+      TiledCellContentWrapper(content: cellBuilder(item, state))
+    }
+  }
+}
+
+// MARK: - Init with prependLoader only (appendLoader disabled by default)
+
+extension TiledView where AppendLoadingView == Never {
+
+  /// Creates a TiledView with prepend loader only.
+  ///
+  /// Use this when you only need to load older items (prepend).
+  /// The appendLoader defaults to `.disabled`.
+  ///
+  /// ```swift
+  /// TiledView(
+  ///   dataSource: dataSource,
+  ///   scrollPosition: $scrollPosition,
+  ///   prependLoader: .loader(perform: { await store.loadOlder() }) {
+  ///     ProgressView()
+  ///   }
+  /// ) { message, state in
+  ///   MessageBubbleView(message: message)
+  /// }
+  /// ```
+  public init<CellContent: TiledCellContent>(
+    dataSource: ListDataSource<Item>,
+    scrollPosition: Binding<TiledScrollPosition>,
+    cellStates: [Item.ID: CellState]? = nil,
+    prependLoader: Loader<PrependLoadingView>?,
+    appendLoader: Loader<Never>? = .disabled,
+    cellBuilder: @escaping (Item, CellState) -> CellContent
+  ) where Cell == TiledCellContentWrapper<CellContent> {
+    self.dataSource = dataSource
+    self._scrollPosition = scrollPosition
+    self.cellStates = cellStates
+    self.prependLoader = prependLoader
+    self.appendLoader = appendLoader
+    self.cellBuilder = { item, state in
+      TiledCellContentWrapper(content: cellBuilder(item, state))
+    }
+  }
+}
+
+// MARK: - Init with appendLoader only (prependLoader disabled by default)
+
+extension TiledView where PrependLoadingView == Never {
+
+  /// Creates a TiledView with append loader only.
+  ///
+  /// Use this when you only need to load newer items (append).
+  /// The prependLoader defaults to `.disabled`.
+  ///
+  /// ```swift
+  /// TiledView(
+  ///   dataSource: dataSource,
+  ///   scrollPosition: $scrollPosition,
+  ///   appendLoader: .loader(perform: { await store.loadNewer() }) {
+  ///     ProgressView()
+  ///   }
+  /// ) { message, state in
+  ///   MessageBubbleView(message: message)
+  /// }
+  /// ```
+  public init<CellContent: TiledCellContent>(
+    dataSource: ListDataSource<Item>,
+    scrollPosition: Binding<TiledScrollPosition>,
+    cellStates: [Item.ID: CellState]? = nil,
+    prependLoader: Loader<Never>? = .disabled,
+    appendLoader: Loader<AppendLoadingView>?,
+    cellBuilder: @escaping (Item, CellState) -> CellContent
+  ) where Cell == TiledCellContentWrapper<CellContent> {
+    self.dataSource = dataSource
+    self._scrollPosition = scrollPosition
+    self.cellStates = cellStates
+    self.prependLoader = prependLoader
+    self.appendLoader = appendLoader
+    self.cellBuilder = { item, state in
+      TiledCellContentWrapper(content: cellBuilder(item, state))
+    }
+  }
+}
+
+// MARK: - View Body and Basic Modifiers
+
+extension TiledView {
 
   public var body: some View {
     GeometryReader { proxy in
@@ -1144,14 +1488,14 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
         cellStates: cellStates,
-        onPrepend: onPrepend,
-        onAppend: onAppend,
         onTiledScrollGeometryChange: onTiledScrollGeometryChange,
         onTapBackground: onTapBackground,
         onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
         additionalContentInset: additionalContentInset,
         swiftUIWorldSafeAreaInset: proxy.safeAreaInsets,
         revealConfiguration: revealConfiguration,
+        prependLoader: prependLoader,
+        appendLoader: appendLoader,
         cellBuilder: cellBuilder
       )
       .ignoresSafeArea()
@@ -1232,5 +1576,5 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
     self.revealConfiguration = configuration
     return self
   }
-
 }
+

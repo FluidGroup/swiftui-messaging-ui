@@ -10,6 +10,7 @@ import MessagingUI
 
 enum DemoDestination: Hashable {
   case tiledView
+  case tiledViewLoadingIndicator
   case lazyVStack
   case messenger
   case messengerSwiftData
@@ -36,6 +37,19 @@ struct ContentView: View {
               }
             } icon: {
               Image(systemName: "square.grid.2x2")
+            }
+          }
+
+          NavigationLink(value: DemoDestination.tiledViewLoadingIndicator) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Loading Indicators")
+                Text("Header/Footer loading spinners")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
             }
           }
 
@@ -124,8 +138,9 @@ struct ContentView: View {
       .navigationDestination(for: DemoDestination.self) { destination in
         switch destination {
         case .tiledView:
-          BookTiledView(namespace: namespace)
-            .navigationTitle("TiledView")
+          BookTiledView(namespace: namespace)       
+        case .tiledViewLoadingIndicator:
+          BookTiledViewLoadingIndicator()
             .navigationBarTitleDisplayMode(.inline)
         case .lazyVStack:
           LazyVStackDemo()
