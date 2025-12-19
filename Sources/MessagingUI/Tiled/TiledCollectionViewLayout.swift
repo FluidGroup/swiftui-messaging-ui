@@ -383,7 +383,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   private func calculateContentInset() -> UIEdgeInsets {
     guard let bounds = contentBounds() else {
-      return additionalContentInset
+      // Empty list: treat anchorY as bottom position to appear "at bottom"
+      let topInset = anchorY
+      let bottomInset = virtualContentHeight - anchorY
+      return UIEdgeInsets(
+        top: -topInset + additionalContentInset.top,
+        left: additionalContentInset.left,
+        bottom: -bottomInset + additionalContentInset.bottom,
+        right: additionalContentInset.right
+      )
     }
 
     let topInset = bounds.top
