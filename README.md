@@ -109,18 +109,42 @@ struct ChatView: View {
 
 ### Loading Older Messages
 
+Use `prependLoader` to handle loading older messages with a built-in loading indicator:
+
 ```swift
 TiledView(
   dataSource: dataSource,
   scrollPosition: $scrollPosition,
-  onPrepend: {
+  prependLoader: .loader(perform: {
     // Called when user scrolls near the top
     let olderMessages = await fetchOlderMessages()
     dataSource.prepend(olderMessages)
+  }) {
+    // Loading indicator shown while loading
+    ProgressView()
+  }
+) { message, _ in
+  MessageBubbleCell(item: message)
+}
+```
 
-    // Or if you have the complete list, use apply() - it auto-detects changes
-    // let allMessages = await fetchAllMessages()
-    // dataSource.apply(allMessages)
+Similarly, use `appendLoader` for loading newer messages at the bottom.
+
+#### Sync Mode with External State
+
+If you need to control the loading state externally:
+
+```swift
+@State private var isLoading = false
+
+TiledView(
+  dataSource: dataSource,
+  scrollPosition: $scrollPosition,
+  prependLoader: .loader(
+    perform: { loadOlderMessages() },
+    isProcessing: isLoading
+  ) {
+    ProgressView()
   }
 ) { message, _ in
   MessageBubbleCell(item: message)
