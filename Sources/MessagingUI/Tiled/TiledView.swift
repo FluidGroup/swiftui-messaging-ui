@@ -59,9 +59,10 @@ final class TiledViewCell: UICollectionViewCell {
   var _updateConfigurationHandler:
     @MainActor (TiledViewCell, CellState) -> Void = { _, _ in }
 
-  func configure<Content: View>(with content: Content) {
+  func configure<Content: View>(with content: Content, cellReveal: CellReveal? = nil) {
     contentConfiguration = UIHostingConfiguration {
       content
+        .environment(\.cellReveal, cellReveal)
     }
     .margins(.all, 0)
   }
@@ -105,9 +106,33 @@ final class TiledViewCell: UICollectionViewCell {
   }
 }
 
+/// MARK: - RevealGestureState
+
+/// Encapsulates state for swipe-to-reveal gesture handling.
+private struct RevealGestureState: ~Copyable {
+
+  /// Pan gesture recognizer for horizontal swipe-to-reveal
+  var panGesture: UIPanGestureRecognizer?
+
+  /// Minimum movement in points before determining gesture direction
+  let directionThreshold: CGFloat = 10
+
+  /// Whether the gesture direction has been determined
+  var isDirectionDetermined = false
+
+  /// Whether the current gesture is recognized as a reveal gesture (horizontal swipe)
+  var isActive = false
+
+  /// Resets the gesture state for a new gesture
+  mutating func reset() {
+    isDirectionDetermined = false
+    isActive = false
+  }
+}
+
 // MARK: - _TiledView
 
-final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
+final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
 
   private let tiledLayout: TiledCollectionViewLayout = .init()
   private var collectionView: UICollectionView!
@@ -150,6 +175,23 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
 
   /// Track if already triggered to avoid multiple calls per drag session
   private var hasDraggedIntoBottomSafeArea: Bool = false
+
+  // MARK: - Reveal Offset (Swipe-to-Reveal)
+
+  /// Shared observable state for reveal offset
+  let cellReveal = CellReveal()
+
+  /// Configuration for reveal gesture
+  var revealConfiguration: RevealConfiguration = .default
+
+  /// Sets the reveal offset, updating observable state.
+  private func setRevealOffset(_ newValue: CGFloat) {
+    guard cellReveal.offset != newValue else { return }
+    cellReveal.offset = newValue
+  }
+
+  /// State for swipe-to-reveal gesture handling
+  private var revealGestureState = RevealGestureState()
 
   /// Additional content inset for keyboard, headers, footers, etc.
   var additionalContentInset: EdgeInsets = .init() {
@@ -275,6 +317,12 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
       tapGesture.cancelsTouchesInView = false
       collectionView.addGestureRecognizer(tapGesture)
 
+      // Setup reveal pan gesture for horizontal swipe-to-reveal
+      let revealGesture = UIPanGestureRecognizer(target: self, action: #selector(handleRevealPanGesture(_:)))
+      revealGesture.delegate = self
+      collectionView.addGestureRecognizer(revealGesture)
+      revealGestureState.panGesture = revealGesture
+
       addSubview(collectionView)
 
       NSLayoutConstraint.activate([
@@ -305,7 +353,7 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     let state = stateMap[item.id] ?? .empty
 
     // Measure using the same UIHostingConfiguration approach
-    sizingCell.configure(with: cellBuilder(item, state))
+    sizingCell.configure(with: cellBuilder(item, state), cellReveal: cellReveal)
     sizingCell.layoutIfNeeded()
 
     let targetSize = CGSize(
@@ -482,11 +530,11 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     let item = items[indexPath.item]
     let state = stateMap[item.id] ?? .empty
 
-    cell.configure(with: cellBuilder(item, state))
+    cell.configure(with: cellBuilder(item, state), cellReveal: cellReveal)
     cell.customState = state
     cell._updateConfigurationHandler = { [weak self] cell, newState in
       guard let self else { return }
-      cell.configure(with: self.cellBuilder(item, newState))
+      cell.configure(with: self.cellBuilder(item, newState), cellReveal: self.cellReveal)
     }
 
     return cell
@@ -561,6 +609,81 @@ final class _TiledView<Item: Identifiable & Equatable, Cell: View>: UIView, UICo
     } else {
       // Reset when exiting the area, allowing re-trigger on next entry
       hasDraggedIntoBottomSafeArea = false
+    }
+  }
+
+  // MARK: - Reveal Offset (Swipe-to-Reveal)
+
+  /// Handles the dedicated pan gesture for horizontal swipe-to-reveal.
+  @objc private func handleRevealPanGesture(_ gesture: UIPanGestureRecognizer) {
+    guard revealConfiguration.isEnabled else { return }
+
+    switch gesture.state {
+    case .began:
+      revealGestureState.reset()
+
+    case .changed:
+      let translation = gesture.translation(in: gesture.view)
+
+      // Determine gesture direction if not yet determined
+      if !revealGestureState.isDirectionDetermined {
+        let totalMovement = abs(translation.x) + abs(translation.y)
+
+        // Wait until we have enough movement to determine direction
+        if totalMovement < revealGestureState.directionThreshold {
+          return
+        }
+
+        revealGestureState.isDirectionDetermined = true
+
+        // Check if gesture is predominantly horizontal left swipe
+        // Horizontal movement must be greater than vertical movement
+        if abs(translation.x) > abs(translation.y) && translation.x < 0 {
+          revealGestureState.isActive = true
+        } else {
+          // This is a vertical scroll or right swipe, ignore for reveal
+          revealGestureState.isActive = false
+          return
+        }
+      }
+
+      // If not a reveal gesture, ignore
+      guard revealGestureState.isActive else { return }
+
+      // Convert left swipe (negative x) to positive rawOffset
+      let rawOffset = -translation.x
+
+      // Subtract direction threshold so movement starts at 0
+      let adjustedOffset = rawOffset - revealGestureState.directionThreshold
+      setRevealOffset(max(0, adjustedOffset))
+
+    case .ended, .cancelled:
+      snapBackReveal()
+      revealGestureState.reset()
+
+    default:
+      break
+    }
+  }
+
+  // MARK: - UIGestureRecognizerDelegate
+
+  /// Allow simultaneous recognition with scroll view's pan gesture.
+  func gestureRecognizer(
+    _ gestureRecognizer: UIGestureRecognizer,
+    shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+  ) -> Bool {
+    // Allow reveal gesture to work with scroll view
+    if gestureRecognizer == revealGestureState.panGesture {
+      return true
+    }
+    return false
+  }
+
+  /// Animates reveal offset back to zero with spring animation.
+  private func snapBackReveal() {
+    withAnimation(.snappy) {
+      setRevealOffset(0)
     }
   }
 
@@ -697,6 +820,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
   let onDragIntoBottomSafeArea: (() -> Void)?
   let additionalContentInset: EdgeInsets
   let swiftUIWorldSafeAreaInset: EdgeInsets
+  let revealConfiguration: RevealConfiguration
   @Binding var scrollPosition: TiledScrollPosition
 
   init(
@@ -709,6 +833,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     onDragIntoBottomSafeArea: (() -> Void)? = nil,
     additionalContentInset: EdgeInsets = .init(),
     swiftUIWorldSafeAreaInset: EdgeInsets = .init(),
+    revealConfiguration: RevealConfiguration = .default,
     @ViewBuilder cellBuilder: @escaping (Item, CellState) -> Cell
   ) {
     self.dataSource = dataSource
@@ -720,6 +845,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     self.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
     self.additionalContentInset = additionalContentInset
     self.swiftUIWorldSafeAreaInset = swiftUIWorldSafeAreaInset
+    self.revealConfiguration = revealConfiguration
     self.cellBuilder = cellBuilder
   }
 
@@ -753,6 +879,7 @@ struct TiledViewRepresentable<Item: Identifiable & Equatable, Cell: View>: UIVie
     
     uiView.onTapBackground = onTapBackground
     uiView.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
+    uiView.revealConfiguration = revealConfiguration
 
     uiView.applyDataSource(dataSource)
     uiView.applyScrollPosition(scrollPosition)
@@ -914,6 +1041,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
   var onTapBackground: (() -> Void)?
   var onDragIntoBottomSafeArea: (() -> Void)?
   var additionalContentInset: EdgeInsets = .init()
+  var revealConfiguration: RevealConfiguration = .default
   @Binding var scrollPosition: TiledScrollPosition
 
   public init(
@@ -930,6 +1058,42 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
     self.cellBuilder = cellBuilder
   }
 
+  /// Creates a TiledView with a cell content builder that receives context.
+  ///
+  /// Use this initializer when your cell needs access to reveal offset or other
+  /// context-based state. The `TiledCellContent` protocol provides a `body(context:)`
+  /// method that receives a `CellContext` with reveal offset information.
+  ///
+  /// ```swift
+  /// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message, state in
+  ///   MessageBubbleCell(item: message)
+  /// }
+  /// ```
+  ///
+  /// - Parameters:
+  ///   - dataSource: The data source containing items to display.
+  ///   - scrollPosition: Binding to control scroll position.
+  ///   - cellStates: Optional per-cell state storage.
+  ///   - onPrepend: Optional callback when scrolling near the top.
+  ///   - cellBuilder: A closure that returns a `TiledCellContent` for each item.
+  public init<CellContent: TiledCellContent>(
+    dataSource: ListDataSource<Item>,
+    scrollPosition: Binding<TiledScrollPosition>,
+    cellStates: [Item.ID: CellState]? = nil,
+    onPrepend: (@MainActor () async throws -> Void)? = nil,
+    cellBuilder: @escaping (Item, CellState) -> CellContent
+  ) where Cell == TiledCellContentWrapper<CellContent> {
+    self.dataSource = dataSource
+    self._scrollPosition = scrollPosition
+    self.cellStates = cellStates
+    self.onPrepend = onPrepend
+    // Wrap the TiledCellContent in a View using TiledCellContentWrapper
+    // The wrapper reads cellReveal from Environment at render time
+    self.cellBuilder = { item, state in
+      TiledCellContentWrapper(content: cellBuilder(item, state))
+    }
+  }
+
   public var body: some View {
     GeometryReader { proxy in
       TiledViewRepresentable(
@@ -942,6 +1106,7 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
         onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
         additionalContentInset: additionalContentInset,
         swiftUIWorldSafeAreaInset: proxy.safeAreaInsets,
+        revealConfiguration: revealConfiguration,
         cellBuilder: cellBuilder
       )
       .ignoresSafeArea()
@@ -1005,4 +1170,22 @@ public struct TiledView<Item: Identifiable & Equatable, Cell: View>: View {
     self.onDragIntoBottomSafeArea = action
     return self
   }
+
+  /// Sets the configuration for the swipe-to-reveal gesture.
+  ///
+  /// Use this to customize the reveal behavior or disable it entirely.
+  /// The reveal gesture allows users to swipe left to reveal timestamps
+  /// or other content on the right side of messages.
+  ///
+  /// ```swift
+  /// TiledView(...)
+  ///   .revealConfiguration(.init(maxOffset: 100))
+  /// ```
+  public consuming func revealConfiguration(
+    _ configuration: RevealConfiguration
+  ) -> Self {
+    self.revealConfiguration = configuration
+    return self
+  }
+
 }

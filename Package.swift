@@ -17,6 +17,7 @@ let package = Package(
   dependencies: [
     .package(url: "https://github.com/apple/swift-collections", from: "1.3.0"),
     .package(url: "https://github.com/FluidGroup/swift-with-prerender", from: "1.1.0"),
+    .package(url: "https://github.com/FluidGroup/swift-rubber-banding", from: "1.0.0"),
   ],
   targets: [
     .target(
@@ -24,6 +25,7 @@ let package = Package(
       dependencies: [
         .product(name: "DequeModule", package: "swift-collections"),
         .product(name: "WithPrerender", package: "swift-with-prerender"),
+        .product(name: "RubberBanding", package: "swift-rubber-banding"),
       ]
     ),
     .testTarget(

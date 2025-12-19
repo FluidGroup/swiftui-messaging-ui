@@ -11,8 +11,8 @@ import MessagingUI
 enum DemoDestination: Hashable {
   case tiledView
   case lazyVStack
-  case iMessage
-  case iMessageSwiftData
+  case messenger
+  case messengerSwiftData
   case applyDiffDemo
   case swiftDataMemo
 }
@@ -51,10 +51,10 @@ struct ContentView: View {
             }
           }
 
-          NavigationLink(value: DemoDestination.iMessage) {
+          NavigationLink(value: DemoDestination.messenger) {
             Label {
               VStack(alignment: .leading) {
-                Text("iMessage Style")
+                Text("Messenger")
                 Text("Chat bubble demo")
                   .font(.caption)
                   .foregroundStyle(.secondary)
@@ -79,10 +79,10 @@ struct ContentView: View {
         }
 
         Section("SwiftData Integration") {
-          NavigationLink(value: DemoDestination.iMessageSwiftData) {
+          NavigationLink(value: DemoDestination.messengerSwiftData) {
             Label {
               VStack(alignment: .leading) {
-                Text("iMessage + SwiftData")
+                Text("Messenger + SwiftData")
                 Text("Persistent chat with status")
                   .font(.caption)
                   .foregroundStyle(.secondary)
@@ -115,10 +115,10 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
         case .lazyVStack:
           LazyVStackDemo()
-        case .iMessage:
-          iMessageDemo()
-        case .iMessageSwiftData:
-          iMessageSwiftDataDemo()
+        case .messenger:
+          MessengerDemo()
+        case .messengerSwiftData:
+          MessengerSwiftDataDemo()
         case .applyDiffDemo:
           BookApplyDiffDemo()
             .navigationTitle("applyDiff Demo")

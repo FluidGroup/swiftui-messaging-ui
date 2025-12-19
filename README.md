@@ -69,6 +69,26 @@ import SwiftUI
 struct Message: Identifiable, Equatable {
   let id: Int
   var text: String
+  var isFromMe: Bool
+  var timestamp: Date
+}
+
+// Define your cell using TiledCellContent protocol
+struct MessageBubbleCell: TiledCellContent {
+  let item: Message
+
+  func body(context: CellContext) -> some View {
+    HStack {
+      if item.isFromMe { Spacer() }
+      Text(item.text)
+        .padding(12)
+        .background(item.isFromMe ? Color.blue : Color.gray.opacity(0.3))
+        .foregroundStyle(item.isFromMe ? .white : .primary)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+      if !item.isFromMe { Spacer() }
+    }
+    .padding(.horizontal)
+  }
 }
 
 struct ChatView: View {
@@ -78,11 +98,10 @@ struct ChatView: View {
   var body: some View {
     TiledView(
       dataSource: dataSource,
-      scrollPosition: $scrollPosition,
-      cellBuilder: { message, _ in
-        MessageBubble(message: message)
-      }
-    )
+      scrollPosition: $scrollPosition
+    ) { message, _ in
+      MessageBubbleCell(item: message)
+    }
     .task {
       dataSource.apply(initialMessages)
     }
@@ -104,11 +123,10 @@ TiledView(
     // Or if you have the complete list, use apply() - it auto-detects changes
     // let allMessages = await fetchAllMessages()
     // dataSource.apply(allMessages)
-  },
-  cellBuilder: { message, _ in
-    MessageBubble(message: message)
   }
-)
+) { message, _ in
+  MessageBubbleCell(item: message)
+}
 ```
 
 ### Programmatic Scrolling
@@ -125,4 +143,49 @@ Button("Scroll to Bottom") {
 Button("Scroll to Top") {
   scrollPosition.scrollTo(edge: .top, animated: false)
 }
+```
+
+### Swipe to Reveal Timestamps
+
+iMessage-style horizontal swipe gesture to reveal timestamps. Use `CellContext` to access the reveal offset:
+
+```swift
+struct MessageBubbleCell: TiledCellContent {
+  let item: Message
+
+  func body(context: CellContext) -> some View {
+    // Get the reveal offset with rubber band effect
+    let offset = context.cellReveal?.rubberbandedOffset(max: 60) ?? 0
+
+    HStack(alignment: .bottom, spacing: 8) {
+      if item.isFromMe {
+        Spacer()
+        // Timestamp fades in as user swipes
+        Text(item.timestamp, style: .time)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .opacity(offset / 40)
+
+        MessageBubble(message: item)
+          .offset(x: -offset)  // Slide left to reveal
+      } else {
+        MessageBubble(message: item)
+          .offset(x: -offset)
+
+        Text(item.timestamp, style: .time)
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .opacity(offset / 40)
+        Spacer()
+      }
+    }
+  }
+}
+```
+
+To disable the reveal gesture:
+
+```swift
+TiledView(...)
+  .revealConfiguration(.disabled)
 ```

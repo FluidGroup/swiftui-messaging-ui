@@ -15,6 +15,29 @@ to enable prepending items without content offset jumps.
 ```swift
 import MessagingUI
 
+struct Message: Identifiable, Equatable {
+  let id: Int
+  var text: String
+  var isFromMe: Bool
+}
+
+// Define your cell using TiledCellContent protocol
+struct MessageBubbleCell: TiledCellContent {
+  let item: Message
+
+  func body(context: CellContext) -> some View {
+    HStack {
+      if item.isFromMe { Spacer() }
+      Text(item.text)
+        .padding(12)
+        .background(item.isFromMe ? Color.blue : Color.gray.opacity(0.3))
+        .foregroundStyle(item.isFromMe ? .white : .primary)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+      if !item.isFromMe { Spacer() }
+    }
+  }
+}
+
 struct ChatView: View {
   @State private var dataSource = ListDataSource<Message>()
   @State private var scrollPosition = TiledScrollPosition()
@@ -22,11 +45,10 @@ struct ChatView: View {
   var body: some View {
     TiledView(
       dataSource: dataSource,
-      scrollPosition: $scrollPosition,
-      cellBuilder: { message, state in
-        MessageBubble(message: message)
-      }
-    )
+      scrollPosition: $scrollPosition
+    ) { message, state in
+      MessageBubbleCell(item: message)
+    }
     .task {
       let messages = await fetchMessages()
       dataSource.apply(messages)
@@ -42,6 +64,12 @@ struct ChatView: View {
 - ``TiledView``
 - ``ListDataSource``
 - ``TiledScrollPosition``
+- ``TiledCellContent``
+- ``CellContext``
+
+### Guides
+
+- <doc:Swipe-to-Reveal-Timestamps>
 
 ### Architecture
 
