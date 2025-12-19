@@ -281,11 +281,11 @@ final class ChatStore {
     }
     try? modelContext.save()
 
-    totalCount += count
-    // Extend window if at the end
-    if !hasNewer {
-      windowSize += count
-    }
+    // Messages are generated with past timestamps, so they appear "before" existing messages
+    // Recalculate window to show from the end
+    totalCount = (try? modelContext.fetchCount(FetchDescriptor<ChatMessageModel>())) ?? 0
+    windowStart = max(0, totalCount - pageSize)
+    windowSize = min(pageSize, totalCount)
     refreshWindow()
   }
 
