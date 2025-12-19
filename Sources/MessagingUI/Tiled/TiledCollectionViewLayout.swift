@@ -22,6 +22,12 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// Use this to add extra space for keyboard, headers, footers, etc.
   public var additionalContentInset: UIEdgeInsets = .zero
 
+  /// Size of the header supplementary view (loading indicator at top)
+  public var headerSize: CGSize = .zero
+
+  /// Size of the footer supplementary view (loading indicator at bottom)
+  public var footerSize: CGSize = .zero
+
   // MARK: - Constants
 
   private let virtualContentHeight: CGFloat = 100_000_000
@@ -75,35 +81,106 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   }
 
   public override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
-    guard !itemYPositions.isEmpty else { return [] }
+    var result: [UICollectionViewLayoutAttributes] = []
 
     let boundsWidth = collectionView?.bounds.width ?? 0
 
-    // Binary search for first visible item
-    let firstIndex = findFirstVisibleIndex(in: rect)
-    guard firstIndex < itemYPositions.count else { return [] }
-
-    // Collect visible items, creating attributes on-demand
-    var result: [UICollectionViewLayoutAttributes] = []
-    for index in firstIndex..<itemYPositions.count {
-      let y = itemYPositions[index]
-
-      // Stop if we're past the visible rect
-      if y > rect.maxY {
-        break
+    // Add header supplementary view if visible
+    if headerSize.height > 0 {
+      if let headerAttrs = layoutAttributesForSupplementaryView(
+        ofKind: TiledLoadingIndicatorView.headerKind,
+        at: IndexPath(item: 0, section: 0)
+      ), headerAttrs.frame.intersects(rect) {
+        result.append(headerAttrs)
       }
+    }
 
-      let height = itemHeights[index]
-      let frame = CGRect(x: 0, y: y, width: boundsWidth, height: height)
+    // Add cell items
+    if !itemYPositions.isEmpty {
+      // Binary search for first visible item
+      let firstIndex = findFirstVisibleIndex(in: rect)
 
-      if frame.intersects(rect) {
-        let indexPath = IndexPath(item: index, section: 0)
-        let attributes = getOrCreateAttributes(for: indexPath, frame: frame)
-        result.append(attributes)
+      if firstIndex < itemYPositions.count {
+        for index in firstIndex..<itemYPositions.count {
+          let y = itemYPositions[index]
+
+          // Stop if we're past the visible rect
+          if y > rect.maxY {
+            break
+          }
+
+          let height = itemHeights[index]
+          let frame = CGRect(x: 0, y: y, width: boundsWidth, height: height)
+
+          if frame.intersects(rect) {
+            let indexPath = IndexPath(item: index, section: 0)
+            let attributes = getOrCreateAttributes(for: indexPath, frame: frame)
+            result.append(attributes)
+          }
+        }
+      }
+    }
+
+    // Add footer supplementary view if visible
+    if footerSize.height > 0 {
+      if let footerAttrs = layoutAttributesForSupplementaryView(
+        ofKind: TiledLoadingIndicatorView.footerKind,
+        at: IndexPath(item: 0, section: 0)
+      ), footerAttrs.frame.intersects(rect) {
+        result.append(footerAttrs)
       }
     }
 
     return result
+  }
+
+  public override func layoutAttributesForSupplementaryView(
+    ofKind elementKind: String,
+    at indexPath: IndexPath
+  ) -> UICollectionViewLayoutAttributes? {
+    let boundsWidth = collectionView?.bounds.width ?? 0
+
+    switch elementKind {
+    case TiledLoadingIndicatorView.headerKind:
+      guard headerSize.height > 0 else { return nil }
+      let attrs = UICollectionViewLayoutAttributes(
+        forSupplementaryViewOfKind: elementKind,
+        with: indexPath
+      )
+      // Position header above first item (or at anchorY if empty)
+      let topY = itemYPositions.first ?? anchorY
+      attrs.frame = CGRect(
+        x: 0,
+        y: topY - headerSize.height,
+        width: boundsWidth,
+        height: headerSize.height
+      )
+      return attrs
+
+    case TiledLoadingIndicatorView.footerKind:
+      guard footerSize.height > 0 else { return nil }
+      let attrs = UICollectionViewLayoutAttributes(
+        forSupplementaryViewOfKind: elementKind,
+        with: indexPath
+      )
+      // Position footer below last item (or at anchorY if empty)
+      let bottomY: CGFloat
+      if let lastY = itemYPositions.last, let lastH = itemHeights.last {
+        bottomY = lastY + lastH
+      } else {
+        bottomY = anchorY
+      }
+      attrs.frame = CGRect(
+        x: 0,
+        y: bottomY,
+        width: boundsWidth,
+        height: footerSize.height
+      )
+      return attrs
+
+    default:
+      return nil
+    }
   }
 
   public override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
@@ -384,8 +461,19 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   private func calculateContentInset() -> UIEdgeInsets {
     guard let bounds = contentBounds() else {
       // Empty list: treat anchorY as bottom position to appear "at bottom"
-      let topInset = anchorY
-      let bottomInset = virtualContentHeight - anchorY
+      // Account for header/footer if present
+      var topY = anchorY
+      var bottomY = anchorY
+
+      if headerSize.height > 0 {
+        topY -= headerSize.height
+      }
+      if footerSize.height > 0 {
+        bottomY += footerSize.height
+      }
+
+      let topInset = topY
+      let bottomInset = virtualContentHeight - bottomY
       return UIEdgeInsets(
         top: -topInset + additionalContentInset.top,
         left: additionalContentInset.left,
@@ -394,8 +482,19 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
     }
 
-    let topInset = bounds.top
-    let bottomInset = virtualContentHeight - bounds.bottom
+    // Adjust bounds to include header/footer
+    var topY = bounds.top
+    var bottomY = bounds.bottom
+
+    if headerSize.height > 0 {
+      topY -= headerSize.height
+    }
+    if footerSize.height > 0 {
+      bottomY += footerSize.height
+    }
+
+    let topInset = topY
+    let bottomInset = virtualContentHeight - bottomY
 
     return UIEdgeInsets(
       top: -topInset + additionalContentInset.top,

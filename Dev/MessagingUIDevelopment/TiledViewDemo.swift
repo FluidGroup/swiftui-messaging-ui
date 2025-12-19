@@ -251,6 +251,141 @@ struct BookTiledView: View {
   }
 }
 
+// MARK: - Loading Indicator Demo
+
+struct BookTiledViewLoadingIndicator: View {
+
+  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var nextPrependId = -1
+  @State private var nextAppendId = 0
+  @State private var scrollPosition = TiledScrollPosition()
+  @State private var isPrependLoading = false
+  @State private var isAppendLoading = false
+
+  var body: some View {
+    TiledView(
+      dataSource: dataSource,
+      scrollPosition: $scrollPosition,
+      cellBuilder: { message, _ in
+        ChatBubbleView(message: message)
+      }
+    )
+    .prependLoadingIndicator(isLoading: isPrependLoading) {
+      HStack {
+        ProgressView()
+        Text("Loading older messages...")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity)
+      .padding()
+    }
+    .appendLoadingIndicator(isLoading: isAppendLoading) {
+      HStack {
+        ProgressView()
+        Text("Loading newer messages...")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity)
+      .padding()
+    }
+    .safeAreaInset(edge: .bottom) {
+      VStack(spacing: 0) {
+        Divider()
+        HStack {
+          Text("\(dataSource.items.count) items")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer()
+          HStack(spacing: 8) {
+            if isPrependLoading {
+              Text("Prepend...")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            }
+            if isAppendLoading {
+              Text("Append...")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+            }
+          }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+      }
+      .background(.bar)
+    }
+    .toolbar {
+      ToolbarItemGroup(placement: .bottomBar) {
+        // Toggle Prepend Loading
+        Button {
+          isPrependLoading.toggle()
+          if isPrependLoading {
+            // Simulate loading and prepend after 2 seconds
+            Task {
+              try? await Task.sleep(for: .seconds(2))
+              let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+              dataSource.prepend(messages)
+              nextPrependId -= 5
+              isPrependLoading = false
+            }
+          }
+        } label: {
+          Label("Load Older", systemImage: isPrependLoading ? "hourglass" : "arrow.up.doc")
+        }
+
+        // Toggle Append Loading
+        Button {
+          isAppendLoading.toggle()
+          if isAppendLoading {
+            // Simulate loading and append after 2 seconds
+            Task {
+              try? await Task.sleep(for: .seconds(2))
+              let messages = generateSampleMessages(count: 5, startId: nextAppendId)
+              dataSource.append(messages)
+              nextAppendId += 5
+              isAppendLoading = false
+            }
+          }
+        } label: {
+          Label("Load Newer", systemImage: isAppendLoading ? "hourglass" : "arrow.down.doc")
+        }
+
+        Spacer()
+
+        // Scroll
+        Button {
+          scrollPosition.scrollTo(edge: .top)
+        } label: {
+          Image(systemName: "arrow.up.to.line")
+        }
+
+        Button {
+          scrollPosition.scrollTo(edge: .bottom)
+        } label: {
+          Image(systemName: "arrow.down.to.line")
+        }
+
+        Spacer()
+
+        // Reset
+        Button {
+          nextPrependId = -1
+          nextAppendId = 5
+          isPrependLoading = false
+          isAppendLoading = false
+          let newItems = generateSampleMessages(count: 5, startId: 0)
+          dataSource.replace(with: newItems)
+        } label: {
+          Image(systemName: "arrow.counterclockwise")
+        }
+      }
+    }
+    .navigationTitle("Loading Indicators")
+  }
+}
+
 #Preview("TiledView (UICollectionView)") {
   @Previewable @Namespace var namespace
   NavigationStack {
@@ -263,5 +398,11 @@ struct BookTiledView: View {
           Text("Detail View for Message ID: \(message.id)")
         }
       }
+  }
+}
+
+#Preview("Loading Indicators") {
+  NavigationStack {
+    BookTiledViewLoadingIndicator()
   }
 }

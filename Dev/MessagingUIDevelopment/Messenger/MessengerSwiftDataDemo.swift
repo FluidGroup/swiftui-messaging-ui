@@ -72,6 +72,10 @@ final class ChatStore {
   private let pageSize = 20
   private var autoReceiveTask: Task<Void, Never>?
 
+  // Loading states
+  private(set) var isPrependLoading = false
+  private(set) var isAppendLoading = false
+
   var hasMore: Bool { windowStart > 0 }
   var hasNewer: Bool { windowStart + windowSize < totalCount }
 
@@ -113,19 +117,29 @@ final class ChatStore {
   }
 
   func loadOlder() {
-    guard hasMore else { return }
-    let prepend = min(pageSize, windowStart)
-    windowStart -= prepend
-    windowSize += prepend
-    refreshWindow()
+    guard hasMore, !isPrependLoading else { return }
+    isPrependLoading = true
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1))
+      let prepend = min(pageSize, windowStart)
+      windowStart -= prepend
+      windowSize += prepend
+      refreshWindow()
+      isPrependLoading = false
+    }
   }
 
   func loadNewer() {
-    guard hasNewer else { return }
-    let available = totalCount - (windowStart + windowSize)
-    let append = min(pageSize, available)
-    windowSize += append
-    refreshWindow()
+    guard hasNewer, !isAppendLoading else { return }
+    isAppendLoading = true
+    Task { @MainActor in
+      try? await Task.sleep(for: .seconds(1))
+      let available = totalCount - (windowStart + windowSize)
+      let append = min(pageSize, available)
+      windowSize += append
+      refreshWindow()
+      isAppendLoading = false
+    }
   }
 
   private func refreshWindow() {
@@ -427,6 +441,26 @@ struct MessengerSwiftDataDemo: View {
           }
       }
       .revealConfiguration(.default)
+      .prependLoadingIndicator(isLoading: store.isPrependLoading) {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Loading older messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+      }
+      .appendLoadingIndicator(isLoading: store.isAppendLoading) {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Loading newer messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+      }
       .onDragIntoBottomSafeArea {
         isInputFocused = false
       }
@@ -453,25 +487,6 @@ struct MessengerSwiftDataDemo: View {
         }
         .padding()
         .transition(.scale.combined(with: .opacity))
-      }
-    }
-    .safeAreaInset(edge: .top, spacing: 0) {
-      if store.hasMore || store.hasNewer {
-        HStack {
-          Text("Loaded: \(store.dataSource.items.count) / \(store.totalCount)")
-          Spacer()
-          if store.hasMore {
-            Text("↑ older")
-          }
-          if store.hasNewer {
-            Text("↓ newer")
-          }
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal)
-        .padding(.vertical, 4)
-        .background(.bar)
       }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
