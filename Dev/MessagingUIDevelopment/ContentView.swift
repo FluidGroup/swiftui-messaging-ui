@@ -28,6 +28,21 @@ struct ContentView: View {
   var body: some View {
     NavigationStack {
       List {
+        Section("Featured") {
+          NavigationLink(value: DemoDestination.messengerSwiftData) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Messenger + SwiftData")
+                Text("Persistent chat with status")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "message.badge.checkmark.fill")
+            }
+          }
+        }
+
         Section("Demos") {
           NavigationLink(value: DemoDestination.tiledView) {
             Label {
@@ -122,19 +137,6 @@ struct ContentView: View {
         }
 
         Section("SwiftData Integration") {
-          NavigationLink(value: DemoDestination.messengerSwiftData) {
-            Label {
-              VStack(alignment: .leading) {
-                Text("Messenger + SwiftData")
-                Text("Persistent chat with status")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
-            } icon: {
-              Image(systemName: "message.badge.checkmark.fill")
-            }
-          }
-
           NavigationLink(value: DemoDestination.messengerBidirectional) {
             Label {
               VStack(alignment: .leading) {
