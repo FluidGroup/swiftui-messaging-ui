@@ -37,6 +37,7 @@ This library takes a different approach: a **virtual content layout** with a 100
 - **UICollectionView-backed** - Native recycling with SwiftUI cell rendering
 - **Self-Sizing Cells** - Automatic height calculation for variable content
 - **Keyboard & Safe Area Handling** - Automatic content inset adjustment for keyboard and safe areas
+- **Typing Indicator** 
 
 ## Requirements
 
