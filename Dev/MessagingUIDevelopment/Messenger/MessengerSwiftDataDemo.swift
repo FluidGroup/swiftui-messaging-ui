@@ -172,11 +172,12 @@ final class ChatStore {
     modelContext.insert(message)
     try? modelContext.save()
 
-    totalCount += 1
     // If at the end, extend window to include the new message
+    // Check hasNewer before incrementing totalCount to get correct comparison
     if !hasNewer {
       windowSize += 1
     }
+    totalCount += 1
     refreshWindow()
 
     // Simulate sending delay
@@ -199,11 +200,12 @@ final class ChatStore {
     modelContext.insert(message)
     try? modelContext.save()
 
-    totalCount += 1
     // If at the end, extend window to include the new message
+    // Check hasNewer before incrementing totalCount to get correct comparison
     if !hasNewer {
       windowSize += 1
     }
+    totalCount += 1
     refreshWindow()
   }
 
