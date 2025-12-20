@@ -24,6 +24,7 @@ protocol MessageContent {
 /// Uses `TiledCellContent` protocol to receive reveal offset from context
 /// instead of reading from `@Environment`.
 struct MessageBubbleCell<Content: MessageContent>: TiledCellContent {
+  typealias StateValue = Void
 
   let item: Content
 
@@ -35,7 +36,7 @@ struct MessageBubbleCell<Content: MessageContent>: TiledCellContent {
     return formatter
   }
 
-  func body(context: CellContext) -> some View {
+  func body(context: CellContext<Void>) -> some View {
     let revealOffset = context.cellReveal?.rubberbandedOffset(max: maxRevealOffset) ?? 0
 
     HStack(spacing: 0) {
@@ -80,6 +81,7 @@ struct MessageBubbleCell<Content: MessageContent>: TiledCellContent {
 
 /// Extended bubble cell that shows message status (for sent messages).
 struct MessageBubbleWithStatusCell<Content: MessageContentWithStatus>: TiledCellContent {
+  typealias StateValue = Void
 
   let item: Content
 
@@ -91,7 +93,7 @@ struct MessageBubbleWithStatusCell<Content: MessageContentWithStatus>: TiledCell
     return formatter
   }
 
-  func body(context: CellContext) -> some View {
+  func body(context: CellContext<Void>) -> some View {
     let revealOffset = context.cellReveal?.rubberbandedOffset(max: maxRevealOffset) ?? 0
 
     HStack(spacing: 0) {

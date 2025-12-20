@@ -41,8 +41,7 @@ struct ListDemoControlPanel: View {
       HStack {
         Button("Update ID:5") {
           if var item = dataSource.items.first(where: { $0.id == 5 }) {
-            item.isExpanded.toggle()
-            item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
+            item.text = "UPDATED! \(Date().formatted(date: .omitted, time: .standard))"
             dataSource.updateExisting([item])
           }
         }
@@ -127,10 +126,10 @@ struct BookTiledView: View {
       TiledView(
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
-        cellBuilder: { message, _ in
-          ChatBubbleCellWithNavigation(item: message, namespace: namespace, useMatchedTransition: true)
-        }
-      )
+        makeInitialState: { _ in ChatBubbleCellState() }
+      ) { message in
+        ChatBubbleCellWithNavigation(item: message, namespace: namespace, useMatchedTransition: true)
+      }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       VStack(spacing: 0) {
@@ -201,8 +200,7 @@ struct BookTiledView: View {
 
           Button {
             if var item = dataSource.items.first(where: { $0.id == 5 }) {
-              item.isExpanded.toggle()
-              item.text = item.isExpanded ? "UPDATED & EXPANDED!" : "Updated back"
+              item.text = "UPDATED! \(Date().formatted(date: .omitted, time: .standard))"
               dataSource.updateExisting([item])
             }
           } label: {
@@ -250,6 +248,7 @@ struct BookTiledViewLoadingIndicator: View {
     TiledView(
       dataSource: dataSource,
       scrollPosition: $scrollPosition,
+      makeInitialState: { _ in ChatBubbleCellState() },
       prependLoader: .loader(
         perform: { /* triggered by button */ },
         isProcessing: isPrependLoading
@@ -275,11 +274,10 @@ struct BookTiledViewLoadingIndicator: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
-      },
-      cellBuilder: { message, _ in
-        ChatBubbleCell(item: message)
       }
-    )
+    ) { message in
+      ChatBubbleCell(item: message)
+    }
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {
         Divider()
@@ -406,6 +404,7 @@ struct BookTiledViewTypingIndicator: View {
     TiledView(
       dataSource: dataSource,
       scrollPosition: $scrollPosition,
+      makeInitialState: { _ in ChatBubbleCellState() },
       appendLoader: .loader(
         perform: { /* triggered by button */ },
         isProcessing: isAppendLoading
@@ -430,11 +429,10 @@ struct BookTiledViewTypingIndicator: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background(Color(.systemGray6))
-      },
-      cellBuilder: { message, _ in
-        ChatBubbleCell(item: message)
       }
-    )
+    ) { message in
+      ChatBubbleCell(item: message)
+    }
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {
         Divider()

@@ -52,11 +52,12 @@ struct ChatMessageItem: Identifiable, Equatable, MessageContentWithStatus {
 // MARK: - ChatMessageCell (with context menu)
 
 struct ChatMessageCell: TiledCellContent {
+  typealias StateValue = Void
 
   let item: ChatMessageItem
   var onDelete: (() -> Void)?
 
-  func body(context: CellContext) -> some View {
+  func body(context: CellContext<Void>) -> some View {
     MessageBubbleWithStatusCell(item: item)
       .body(context: context)
       .contextMenu {
@@ -473,7 +474,7 @@ struct MessengerSwiftDataDemo: View {
           .padding(.horizontal, 16)
           .padding(.vertical, 12)
         }
-      ) { message, _ in
+      ) { message in
         ChatMessageCell(item: message) {
           store.deleteMessage(id: message.id)
         }

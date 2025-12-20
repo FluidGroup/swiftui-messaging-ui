@@ -78,9 +78,10 @@ struct Message: Identifiable, Equatable {
 
 // Define your cell using TiledCellContent protocol
 struct MessageBubbleCell: TiledCellContent {
+  typealias StateValue = Void  // No per-cell state needed
   let item: Message
 
-  func body(context: CellContext) -> some View {
+  func body(context: CellContext<Void>) -> some View {
     HStack {
       if item.isFromMe { Spacer() }
       Text(item.text)
@@ -102,7 +103,7 @@ struct ChatView: View {
     TiledView(
       dataSource: dataSource,
       scrollPosition: $scrollPosition
-    ) { message, _ in
+    ) { message in
       MessageBubbleCell(item: message)
     }
     .task {
@@ -128,7 +129,7 @@ TiledView(
     // Loading indicator shown while loading
     ProgressView()
   }
-) { message, _ in
+) { message in
   MessageBubbleCell(item: message)
 }
 ```
@@ -151,7 +152,7 @@ TiledView(
   ) {
     ProgressView()
   }
-) { message, _ in
+) { message in
   MessageBubbleCell(item: message)
 }
 ```
@@ -178,9 +179,10 @@ iMessage-style horizontal swipe gesture to reveal timestamps. Use `CellContext` 
 
 ```swift
 struct MessageBubbleCell: TiledCellContent {
+  typealias StateValue = Void
   let item: Message
 
-  func body(context: CellContext) -> some View {
+  func body(context: CellContext<Void>) -> some View {
     // Get the reveal offset with rubber band effect
     let offset = context.cellReveal?.rubberbandedOffset(max: 60) ?? 0
 
@@ -236,7 +238,7 @@ TiledView(
     .padding(.horizontal, 16)
     .padding(.vertical, 12)
   }
-) { message, _ in
+) { message in
   MessageBubbleCell(item: message)
 }
 ```
@@ -270,3 +272,108 @@ Configure automatic scrolling behavior for messaging UIs:
   scrollsToBottomOnReplace: true       // Start at bottom on initial load
 )
 ```
+
+### Per-Cell State
+
+Manage UI state (like expanded/collapsed, tap counts) that persists across cell reuse using `CellStateStorage`. This is ideal for cell-specific state that isn't part of your data model.
+
+> **Important: Why Not @State?**
+>
+> You can use `@State` inside cell views, but the state will be lost when the cell is reused. `TiledView` uses `UICollectionView` which recycles cells for performance. When a cell scrolls off-screen and is reused for a different item, any `@State` values are reset. Use `CellStateStorage` for state that should persist.
+
+#### Basic Usage
+
+```swift
+struct MyCellState {
+  var isExpanded: Bool = false
+  var tapCount: Int = 0
+}
+
+struct MessageCell: TiledCellContent {
+  typealias StateValue = MyCellState
+  let item: Message
+
+  func body(context: CellContext<MyCellState>) -> some View {
+    VStack {
+      Text(item.text)
+
+      if context.state.value.isExpanded {
+        Text("Additional details...")
+      }
+
+      Button("Expand") {
+        context.state.value.isExpanded.toggle()
+      }
+    }
+  }
+}
+
+// Provide initial state factory
+TiledView(
+  dataSource: dataSource,
+  scrollPosition: $scrollPosition,
+  makeInitialState: { item in MyCellState() }
+) { message in
+  MessageCell(item: message)
+}
+```
+
+#### Using Reference Types
+
+`StateValue` can be a reference type like `@Observable` classes for more complex state management:
+
+```swift
+@Observable
+final class CellViewModel {
+  var isExpanded = false
+  var loadedData: Data?
+
+  func loadData() async { ... }
+}
+
+struct MessageCell: TiledCellContent {
+  typealias StateValue = CellViewModel
+  let item: Message
+
+  func body(context: CellContext<CellViewModel>) -> some View {
+    let viewModel = context.state.value
+    // Use viewModel directly - @Observable handles updates
+    Text(viewModel.isExpanded ? "Expanded" : "Collapsed")
+  }
+}
+```
+
+#### Sharing State Across All Cells
+
+To share state across all cells (e.g., selection state), return the same instance in `makeInitialState`:
+
+```swift
+@Observable
+final class SharedSelectionState {
+  var selectedIds: Set<Message.ID> = []
+}
+
+struct ChatView: View {
+  @State private var dataSource = ListDataSource<Message>()
+  @State private var scrollPosition = TiledScrollPosition()
+  @State private var sharedState = SharedSelectionState()
+
+  var body: some View {
+    TiledView(
+      dataSource: dataSource,
+      scrollPosition: $scrollPosition,
+      makeInitialState: { _ in sharedState }  // Same instance for all cells
+    ) { message in
+      SelectableMessageCell(item: message)
+    }
+  }
+}
+```
+
+#### State Lifecycle
+
+- **Creation**: State is lazily created when a cell is first displayed
+- **Persistence**: State persists for the lifetime of the `TiledView`, even if items are temporarily removed
+- **Destruction**: State is released when the `TiledView` is destroyed
+
+> **Note**: If an item is removed and later re-added with the same ID, it will retain its previous state. This behavior may change in future versions with configurable lifecycle options.

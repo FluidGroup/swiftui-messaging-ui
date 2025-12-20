@@ -86,11 +86,12 @@ struct MemoBubbleView: View {
 // MARK: - MemoBubbleCell (TiledCellContent)
 
 struct MemoBubbleCell: TiledCellContent {
+  typealias StateValue = Void
 
   let item: MemoItem
   var onDelete: (() -> Void)?
 
-  func body(context: CellContext) -> some View {
+  func body(context: CellContext<Void>) -> some View {
     MemoBubbleView(item: item, onDelete: onDelete)
   }
 }
@@ -262,7 +263,7 @@ struct SwiftDataMemoDemo: View {
           }, isProcessing: false) {
             EmptyView()
           }
-        ) { item, _ in
+        ) { item in
           MemoBubbleCell(item: item) {
             store.deleteMemo(id: item.id)
           }
