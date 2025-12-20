@@ -11,12 +11,58 @@ import UIKit
 ///
 /// This struct extracts the essential properties needed to calculate scroll positions,
 /// enabling pure function implementations that can be unit tested without UIScrollView.
+///
+/// ## Usage
+///
+/// Use the UIScrollView extension to create a snapshot:
+///
+/// ```swift
+/// let geometry = scrollView.scrollViewGeometry
+/// if let newOffset = geometry.contentOffsetToMakeRectVisible(targetRect) {
+///   scrollView.setContentOffset(newOffset, animated: true)
+/// }
+/// ```
+///
+/// ## Unit Testing
+///
+/// Create instances directly for testing scroll calculations:
+///
+/// ```swift
+/// func testScrollDown() {
+///   let geometry = ScrollViewGeometry(
+///     contentSize: CGSize(width: 320, height: 1000),
+///     contentOffset: .zero,
+///     bounds: CGSize(width: 320, height: 600),
+///     adjustedContentInset: .zero
+///   )
+///
+///   let result = geometry.contentOffsetToMakeRectVisible(
+///     CGRect(x: 0, y: 800, width: 320, height: 50)
+///   )
+///   XCTAssertEqual(result?.y, 250)  // 800 + 50 - 600 = 250
+/// }
+/// ```
 public struct ScrollViewGeometry: Equatable, Sendable {
+
+  /// The total size of the scrollable content.
   public let contentSize: CGSize
+
+  /// The current content offset (scroll position).
   public let contentOffset: CGPoint
+
+  /// The visible size of the scroll view (bounds size).
   public let bounds: CGSize
+
+  /// The adjusted content inset including safe area and custom insets.
   public let adjustedContentInset: UIEdgeInsets
 
+  /// Creates a scroll view geometry with the specified values.
+  ///
+  /// - Parameters:
+  ///   - contentSize: The total size of the scrollable content.
+  ///   - contentOffset: The current content offset.
+  ///   - bounds: The visible size of the scroll view.
+  ///   - adjustedContentInset: The adjusted content inset.
   public init(
     contentSize: CGSize,
     contentOffset: CGPoint,
