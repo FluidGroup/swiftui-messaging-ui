@@ -17,7 +17,7 @@ final class TiledLoadingIndicatorView: UICollectionReusableView {
 
   private var hostingController: UIHostingController<AnyView>?
   
-  /// when contentInsetAdjustmentBehavior = .never is used on the collection view.
+  /// Override safeAreaInsets to return zero. This prevents UIHostingConfiguration from being affected by safe area changes when contentInsetAdjustmentBehavior = .never is used on the collection view.
   override var safeAreaInsets: UIEdgeInsets {
     .zero
   }
