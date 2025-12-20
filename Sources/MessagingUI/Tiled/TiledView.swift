@@ -193,6 +193,17 @@ extension Optional where Wrapped == Loader<Never> {
   public static var disabled: Loader<Never>? { nil }
 }
 
+final class _CollectionView: UICollectionView {
+  
+  private var _safeAreaInsets: UIEdgeInsets? = .zero
+  
+  override var safeAreaInsets: UIEdgeInsets {
+    get { _safeAreaInsets ?? super.safeAreaInsets }
+    set { _safeAreaInsets = newValue }
+  }
+}
+
+
 // MARK: - _TiledView
 
 final class _TiledView<
@@ -203,7 +214,7 @@ final class _TiledView<
 >: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
 
   private let tiledLayout: TiledCollectionViewLayout = .init()
-  private var collectionView: UICollectionView!
+  private var collectionView: _CollectionView!
 
   private var items: Deque<Item> = []
   private let cellBuilder: (Item, CellState) -> Cell
@@ -309,7 +320,9 @@ final class _TiledView<
     let oldOffsetY = collectionView.contentOffset.y
 
     let combined = additionalContentInset + swiftUIWorldSafeAreaInset
-    let uiEdgeInsets = combined.toUIEdgeInsets(layoutDirection: effectiveUserInterfaceLayoutDirection) - safeAreaInsets
+    // With .never, adjustedContentInset = contentInset (no automatic safeArea addition)
+    // So we directly use our desired insets without subtracting safeAreaInsets
+    let uiEdgeInsets = combined.toUIEdgeInsets(layoutDirection: effectiveUserInterfaceLayoutDirection)
     // Calculate delta before applying changes
     // Delta = new additionalContentInset.bottom - old additionalContentInset.bottom
     let oldAdditionalBottom = tiledLayout.additionalContentInset.bottom
@@ -318,6 +331,8 @@ final class _TiledView<
     guard deltaBottom != 0 else {
       // Just apply without animation if no change
       tiledLayout.additionalContentInset = uiEdgeInsets
+      // With .never, scroll indicators need manual safe area adjustment
+      collectionView.verticalScrollIndicatorInsets.top = uiEdgeInsets.top
       collectionView.verticalScrollIndicatorInsets.bottom = uiEdgeInsets.bottom
       return
     }
@@ -335,6 +350,8 @@ final class _TiledView<
     let applyChanges = {
       self.collectionView.contentOffset.y = offsetY
       self.tiledLayout.additionalContentInset = uiEdgeInsets
+      // With .never, scroll indicators need manual safe area adjustment
+      self.collectionView.verticalScrollIndicatorInsets.top = uiEdgeInsets.top
       self.collectionView.verticalScrollIndicatorInsets.bottom = uiEdgeInsets.bottom
       self.tiledLayout.invalidateLayout()
     }
@@ -387,7 +404,7 @@ final class _TiledView<
         self?.measureSize(at: index, width: width)
       }
       
-      collectionView = UICollectionView(frame: .zero, collectionViewLayout: tiledLayout)
+      collectionView = .init(frame: .zero, collectionViewLayout: tiledLayout)
       collectionView.translatesAutoresizingMaskIntoConstraints = false
       collectionView.selfSizingInvalidation = .enabledIncludingConstraints
       collectionView.backgroundColor = .clear
@@ -396,7 +413,8 @@ final class _TiledView<
       collectionView.delegate = self
       collectionView.alwaysBounceVertical = true
       /// It have to use `.always` as scrolling won't work correctly with `.never`.
-      collectionView.contentInsetAdjustmentBehavior = .always
+      collectionView.contentInsetAdjustmentBehavior = .never
+      collectionView.automaticallyAdjustsScrollIndicatorInsets = false
       collectionView.isPrefetchingEnabled = false
       
       collectionView.register(TiledViewCell.self, forCellWithReuseIdentifier: TiledViewCell.reuseIdentifier)

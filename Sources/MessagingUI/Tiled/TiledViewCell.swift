@@ -12,6 +12,17 @@ final class TiledViewCell: UICollectionViewCell {
 
   static let reuseIdentifier = "TiledViewCell"
 
+  // MARK: - Safe Area Override
+
+  /// Override safeAreaInsets to return zero.
+  /// This prevents UIHostingConfiguration from being affected by safe area changes
+  /// when contentInsetAdjustmentBehavior = .never is used on the collection view.
+  override var safeAreaInsets: UIEdgeInsets {
+    .zero
+  }
+
+  // MARK: - State
+
   /// Custom state for this cell
   var customState: CellState = .empty
 
