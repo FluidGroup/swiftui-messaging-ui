@@ -93,7 +93,7 @@ public struct CellContext<StateValue> {
   /// Access and modify per-cell state that persists across cell reuse.
   /// Changes to `state.value` automatically trigger SwiftUI re-renders.
   ///
-  /// ## Example
+  /// ## Basic Example
   ///
   /// ```swift
   /// func body(context: CellContext<Int>) -> some View {
@@ -102,6 +102,54 @@ public struct CellContext<StateValue> {
   ///   Button("Tapped \(count) times") {
   ///     context.state.value += 1
   ///   }
+  /// }
+  /// ```
+  ///
+  /// ## Value Types vs Reference Types
+  ///
+  /// `StateValue` does not need to be a value type. You can use reference types
+  /// such as `@Observable` classes when more complex state management is needed.
+  ///
+  /// ```swift
+  /// @Observable
+  /// final class CellViewModel {
+  ///   var isExpanded = false
+  ///   var loadedData: Data?
+  ///
+  ///   func loadData() async { ... }
+  /// }
+  ///
+  /// struct MyCell: TiledCellContent {
+  ///   typealias StateValue = CellViewModel
+  ///   let item: Message
+  ///
+  ///   func body(context: CellContext<CellViewModel>) -> some View {
+  ///     let viewModel = context.state.value
+  ///     // Use viewModel directly - @Observable handles updates
+  ///     Text(viewModel.isExpanded ? "Expanded" : "Collapsed")
+  ///   }
+  /// }
+  /// ```
+  ///
+  /// ## Sharing State Across All Cells
+  ///
+  /// To share state across all cells, pass a shared instance in `makeInitialState`.
+  /// Since the same instance is returned for every cell, all cells will share it.
+  ///
+  /// ```swift
+  /// @Observable
+  /// final class SharedSelectionState {
+  ///   var selectedIds: Set<Item.ID> = []
+  /// }
+  ///
+  /// let sharedState = SharedSelectionState()
+  ///
+  /// TiledView(
+  ///   dataSource: dataSource,
+  ///   scrollPosition: $scrollPosition,
+  ///   makeInitialState: { _ in sharedState }  // Same instance for all cells
+  /// ) { item in
+  ///   SelectableCell(item: item)
   /// }
   /// ```
   public let state: CellStateStorage<StateValue>
