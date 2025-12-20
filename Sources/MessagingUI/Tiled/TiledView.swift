@@ -193,17 +193,6 @@ extension Optional where Wrapped == Loader<Never> {
   public static var disabled: Loader<Never>? { nil }
 }
 
-final class _CollectionView: UICollectionView {
-  
-  private var _safeAreaInsets: UIEdgeInsets? = .zero
-  
-  override var safeAreaInsets: UIEdgeInsets {
-    get { _safeAreaInsets ?? super.safeAreaInsets }
-    set { _safeAreaInsets = newValue }
-  }
-}
-
-
 // MARK: - _TiledView
 
 final class _TiledView<
@@ -214,7 +203,7 @@ final class _TiledView<
 >: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
 
   private let tiledLayout: TiledCollectionViewLayout = .init()
-  private var collectionView: _CollectionView!
+  private var collectionView: UICollectionView!
 
   private var items: Deque<Item> = []
   private let cellBuilder: (Item, CellState) -> Cell
