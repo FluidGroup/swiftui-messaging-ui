@@ -58,6 +58,7 @@ struct MessengerDemo: View {
   @State private var inputText = ""
   @State private var isPrependLoading = false
   @State private var isAppendLoading = false
+  @State private var isTyping = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -89,6 +90,17 @@ struct MessengerDemo: View {
               .foregroundStyle(.secondary)
           }
           .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        },
+        typingIndicator: .indicator(isVisible: isTyping) {
+          HStack(spacing: 8) {
+            TypingDotsView()
+            Text("Someone is typing...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 16)
           .padding(.vertical, 12)
         }
       ) { message, _ in
@@ -148,6 +160,13 @@ struct MessengerDemo: View {
 
         Spacer()
 
+        Button {
+          receiveMessage()
+        } label: {
+          Image(systemName: "message.badge")
+        }
+        .disabled(isTyping)
+
         Menu {
           Button("Reset") {
             resetConversation()
@@ -203,9 +222,42 @@ struct MessengerDemo: View {
     }
   }
 
+  private func receiveMessage() {
+    guard !isTyping else { return }
+
+    isTyping = true
+    Task {
+      // Simulate typing delay
+      try? await Task.sleep(for: .seconds(1.5))
+
+      // Generate a random response
+      let responses = [
+        "Got it!",
+        "Sure thing",
+        "Sounds good to me",
+        "Let me think about it...",
+        "Interesting!",
+        "Thanks for letting me know",
+        "I'll get back to you on that",
+        "Perfect!",
+      ]
+      let message = Message(
+        id: nextAppendId,
+        text: responses.randomElement()!,
+        isSentByMe: false,
+        timestamp: Date()
+      )
+
+      isTyping = false
+      dataSource.append([message])
+      nextAppendId += 1
+    }
+  }
+
   private func resetConversation() {
     nextPrependId = -1
     nextAppendId = 10
+    isTyping = false
     let initialMessages = generateConversation(count: 10, startId: 0)
     dataSource.replace(with: initialMessages)
   }

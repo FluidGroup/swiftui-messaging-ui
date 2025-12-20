@@ -312,6 +312,7 @@ struct MessengerSwiftDataDemo: View {
   @State private var inputText = ""
   @State private var scrollPosition: TiledScrollPosition
   @State private var scrollGeometry: TiledScrollGeometry?
+  @State private var isTyping = false
   @FocusState private var isInputFocused: Bool
 
   init(loadPosition: LoadPosition = .end) {
@@ -341,10 +342,11 @@ struct MessengerSwiftDataDemo: View {
       ToolbarItemGroup(placement: .topBarTrailing) {
         Menu {
           Button {
-            store?.simulateIncomingMessage()
+            receiveMessageWithTyping()
           } label: {
             Label("Receive Message", systemImage: "arrow.down.message")
           }
+          .disabled(isTyping)
 
           Button {
             if store?.isAutoReceiveEnabled == true {
@@ -459,6 +461,17 @@ struct MessengerSwiftDataDemo: View {
           }
           .frame(maxWidth: .infinity)
           .padding(.vertical, 12)
+        },
+        typingIndicator: .indicator(isVisible: isTyping) {
+          HStack(spacing: 8) {
+            TypingDotsView()
+            Text("Someone is typing...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 12)
         }
       ) { message, _ in
         ChatMessageCell(item: message) {
@@ -504,6 +517,19 @@ struct MessengerSwiftDataDemo: View {
     guard !inputText.isEmpty else { return }
     store?.sendMessage(text: inputText)
     inputText = ""
+  }
+
+  private func receiveMessageWithTyping() {
+    guard !isTyping else { return }
+
+    isTyping = true
+    Task {
+      // Simulate typing delay
+      try? await Task.sleep(for: .seconds(1.5))
+
+      isTyping = false
+      store?.simulateIncomingMessage()
+    }
   }
 }
 

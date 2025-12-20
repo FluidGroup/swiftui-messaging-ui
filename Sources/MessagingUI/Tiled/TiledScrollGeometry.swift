@@ -29,3 +29,19 @@ public struct TiledScrollGeometry: Equatable, Sendable {
     self.contentInset = contentInset
   }
 }
+
+// MARK: - UIScrollView Extension
+
+extension UIScrollView {
+
+  /// Returns a snapshot of the scroll view's current geometric state.
+  @MainActor
+  var tiledScrollGeometry: TiledScrollGeometry {
+    TiledScrollGeometry(
+      contentOffset: contentOffset,
+      contentSize: contentSize,
+      visibleSize: bounds.size,
+      contentInset: adjustedContentInset
+    )
+  }
+}

@@ -391,8 +391,185 @@ struct BookTiledViewLoadingIndicator: View {
   }
 }
 
+// MARK: - Typing Indicator Demo
+
+struct BookTiledViewTypingIndicator: View {
+
+  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var nextPrependId = -1
+  @State private var nextAppendId = 0
+  @State private var scrollPosition = TiledScrollPosition()
+  @State private var isTyping = false
+  @State private var isAppendLoading = false
+
+  var body: some View {
+    TiledView(
+      dataSource: dataSource,
+      scrollPosition: $scrollPosition,
+      appendLoader: .loader(
+        perform: { /* triggered by button */ },
+        isProcessing: isAppendLoading
+      ) {
+        HStack {
+          ProgressView()
+          Text("Loading newer messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+      },
+      typingIndicator: .indicator(isVisible: isTyping) {
+        HStack(spacing: 8) {
+          TypingDotsView()
+          Text("Someone is typing...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(.systemGray6))
+      },
+      cellBuilder: { message, _ in
+        ChatBubbleCell(item: message)
+      }
+    )
+    .safeAreaInset(edge: .bottom) {
+      VStack(spacing: 0) {
+        Divider()
+        HStack {
+          Text("\(dataSource.items.count) items")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          Spacer()
+          if isTyping {
+            Text("Typing...")
+              .font(.caption2)
+              .foregroundStyle(.blue)
+          }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+      }
+      .background(.bar)
+    }
+    .toolbar {
+      ToolbarItemGroup(placement: .bottomBar) {
+        // Toggle Typing Indicator
+        Button {
+          withAnimation {
+            isTyping.toggle()
+          }
+        } label: {
+          Label(
+            isTyping ? "Hide Typing" : "Show Typing",
+            systemImage: isTyping ? "ellipsis.bubble.fill" : "ellipsis.bubble"
+          )
+        }
+        .tint(isTyping ? .blue : nil)
+
+        // Toggle Append Loading
+        Button {
+          isAppendLoading.toggle()
+          if isAppendLoading {
+            Task {
+              try? await Task.sleep(for: .seconds(2))
+              let messages = generateSampleMessages(count: 5, startId: nextAppendId)
+              dataSource.append(messages)
+              nextAppendId += 5
+              isAppendLoading = false
+            }
+          }
+        } label: {
+          Label("Load Newer", systemImage: isAppendLoading ? "hourglass" : "arrow.down.doc")
+        }
+
+        Spacer()
+
+        // Append
+        Button {
+          let messages = generateSampleMessages(count: 5, startId: nextAppendId)
+          dataSource.append(messages)
+          nextAppendId += 5
+        } label: {
+          Image(systemName: "arrow.down.doc")
+        }
+
+        // Scroll
+        Button {
+          scrollPosition.scrollTo(edge: .bottom)
+        } label: {
+          Image(systemName: "arrow.down.to.line")
+        }
+
+        Spacer()
+
+        // Reset
+        Button {
+          nextPrependId = -1
+          nextAppendId = 5
+          isTyping = false
+          isAppendLoading = false
+          let newItems = generateSampleMessages(count: 5, startId: 0)
+          dataSource.replace(with: newItems)
+        } label: {
+          Image(systemName: "arrow.counterclockwise")
+        }
+      }
+    }
+    .navigationTitle("Typing Indicator")
+  }
+}
+
+// Animated typing dots
+struct TypingDotsView: View {
+  @State private var isAnimating = false
+
+  var body: some View {
+    HStack(spacing: 5) {
+      ForEach(0..<3) { index in
+        Circle()
+          .fill(
+            LinearGradient(
+              colors: [Color.gray.opacity(0.6), Color.gray.opacity(0.4)],
+              startPoint: .top,
+              endPoint: .bottom
+            )
+          )
+          .frame(width: 10, height: 10)
+          .scaleEffect(isAnimating ? 1.0 : 0.6)
+          .offset(y: isAnimating ? -6 : 2)
+          .animation(
+            .easeInOut(duration: 0.5)
+              .repeatForever(autoreverses: true)
+              .delay(Double(index) * 0.15),
+            value: isAnimating
+          )
+      }
+    }
+    .onAppear {
+      isAnimating = true
+    }
+  }
+}
+
+#Preview("Typing Dots") {
+  TypingDotsView()
+    .padding()
+    .background(Color(.systemGray6))
+    .clipShape(RoundedRectangle(cornerRadius: 16))
+    .padding()
+}
+
 #Preview("Loading Indicators") {
   NavigationStack {
     BookTiledViewLoadingIndicator()
+  }
+}
+
+#Preview("Typing Indicator") {
+  NavigationStack {
+    BookTiledViewTypingIndicator()
   }
 }
