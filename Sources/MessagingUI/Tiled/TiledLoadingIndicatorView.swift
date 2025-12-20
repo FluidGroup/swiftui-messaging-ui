@@ -16,6 +16,11 @@ final class TiledLoadingIndicatorView: UICollectionReusableView {
   static let reuseIdentifier = "TiledLoadingIndicatorView"
 
   private var hostingController: UIHostingController<AnyView>?
+  
+  /// Override safeAreaInsets to return zero. This prevents UIHostingConfiguration from being affected by safe area changes when contentInsetAdjustmentBehavior = .never is used on the collection view.
+  override var safeAreaInsets: UIEdgeInsets {
+    .zero
+  }
 
   func configure<Content: View>(with content: Content) {
     // Remove existing hosting controller if present
@@ -25,6 +30,7 @@ final class TiledLoadingIndicatorView: UICollectionReusableView {
     let hosting = UIHostingController(rootView: AnyView(content))
     hosting.view.translatesAutoresizingMaskIntoConstraints = false
     hosting.view.backgroundColor = .clear
+    hosting.safeAreaRegions = []
 
     addSubview(hosting.view)
     NSLayoutConstraint.activate([
