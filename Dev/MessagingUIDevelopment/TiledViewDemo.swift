@@ -128,7 +128,7 @@ struct BookTiledView: View {
         dataSource: dataSource,
         scrollPosition: $scrollPosition,
         cellBuilder: { message, _ in
-          ChatBubbleCellWithNavigation(item: message, namespace: namespace, useMatchedTransition: false)
+          ChatBubbleCellWithNavigation(item: message, namespace: namespace, useMatchedTransition: true)
         }
       )
     }
