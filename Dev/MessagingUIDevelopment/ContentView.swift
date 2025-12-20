@@ -11,7 +11,9 @@ import MessagingUI
 enum DemoDestination: Hashable {
   case tiledView
   case tiledViewLoadingIndicator
+  case tiledViewTypingIndicator
   case lazyVStack
+  case list
   case messenger
   case messengerSwiftData
   case messengerBidirectional
@@ -53,6 +55,19 @@ struct ContentView: View {
             }
           }
 
+          NavigationLink(value: DemoDestination.tiledViewTypingIndicator) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Typing Indicator")
+                Text("Show typing status at bottom")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "ellipsis.bubble")
+            }
+          }
+
           NavigationLink(value: DemoDestination.lazyVStack) {
             Label {
               VStack(alignment: .leading) {
@@ -63,6 +78,19 @@ struct ContentView: View {
               }
             } icon: {
               Image(systemName: "list.bullet")
+            }
+          }
+
+          NavigationLink(value: DemoDestination.list) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("List")
+                Text("SwiftUI List")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "list.bullet.rectangle")
             }
           }
 
@@ -142,8 +170,13 @@ struct ContentView: View {
         case .tiledViewLoadingIndicator:
           BookTiledViewLoadingIndicator()
             .navigationBarTitleDisplayMode(.inline)
+        case .tiledViewTypingIndicator:
+          BookTiledViewTypingIndicator()
+            .navigationBarTitleDisplayMode(.inline)
         case .lazyVStack:
           LazyVStackDemo()
+        case .list:
+          ListDemo()
         case .messenger:
           MessengerDemo()
         case .messengerSwiftData:

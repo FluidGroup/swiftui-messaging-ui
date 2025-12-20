@@ -26,7 +26,7 @@ struct ListDataSourceTests {
 
     dataSource.apply(newItems)
 
-    #expect(dataSource.items == newItems)
+    #expect(Array(dataSource.items) == newItems)
     #expect(dataSource.pendingChanges.last == .replace)
   }
 
@@ -47,7 +47,7 @@ struct ListDataSourceTests {
 
     dataSource.apply( newItems)
 
-    #expect(dataSource.items == newItems)
+    #expect(Array(dataSource.items) == newItems)
     #expect(dataSource.pendingChanges.contains(.prepend([1])))
   }
 
@@ -58,7 +58,7 @@ struct ListDataSourceTests {
 
     dataSource.apply( newItems)
 
-    #expect(dataSource.items == newItems)
+    #expect(Array(dataSource.items) == newItems)
     #expect(dataSource.pendingChanges.contains(.append([2])))
   }
 
@@ -76,7 +76,7 @@ struct ListDataSourceTests {
 
     dataSource.apply( newItems)
 
-    #expect(dataSource.items == newItems)
+    #expect(Array(dataSource.items) == newItems)
     #expect(dataSource.pendingChanges.contains(.insert(at: 1, ids: [2])))
   }
 
@@ -87,7 +87,7 @@ struct ListDataSourceTests {
 
     dataSource.apply( newItems)
 
-    #expect(dataSource.items == newItems)
+    #expect(Array(dataSource.items) == newItems)
     #expect(dataSource.pendingChanges.contains(.update([1])))
   }
 
@@ -101,7 +101,7 @@ struct ListDataSourceTests {
 
     dataSource.apply( newItems)
 
-    #expect(dataSource.items == newItems)
+    #expect(Array(dataSource.items) == newItems)
     #expect(dataSource.pendingChanges.contains(.remove([2])))
   }
 
@@ -122,7 +122,7 @@ struct ListDataSourceTests {
 
     dataSource.apply( newItems)
 
-    #expect(dataSource.items == newItems)
+    #expect(Array(dataSource.items) == newItems)
     #expect(dataSource.pendingChanges.contains(.remove([4])))
     #expect(dataSource.pendingChanges.contains(.prepend([1])))
     #expect(dataSource.pendingChanges.contains(.update([2])))

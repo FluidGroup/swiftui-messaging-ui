@@ -215,3 +215,57 @@ To disable the reveal gesture:
 TiledView(...)
   .revealConfiguration(.disabled)
 ```
+
+### Typing Indicator
+
+Show when other users are typing with the `typingIndicator` parameter:
+
+```swift
+TiledView(
+  dataSource: dataSource,
+  scrollPosition: $scrollPosition,
+  typingIndicator: .indicator(isVisible: store.isTyping) {
+    HStack(spacing: 8) {
+      TypingDotsView()
+      Text("Someone is typing...")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.horizontal, 16)
+    .padding(.vertical, 12)
+  }
+) { message, _ in
+  MessageBubbleCell(item: message)
+}
+```
+
+The typing indicator appears below the last message and automatically scrolls into view when it appears (if the user is near the bottom of the list).
+
+### Observing Scroll Position
+
+Use `onTiledScrollGeometryChange` to observe scroll position changes. This is useful for showing "scroll to bottom" buttons or enabling/disabling auto-scroll:
+
+```swift
+@State private var showScrollButton = false
+
+TiledView(...)
+  .onTiledScrollGeometryChange { geometry in
+    // Show button when user scrolls up from bottom
+    showScrollButton = geometry.pointsFromBottom > 100
+
+    // Dynamically enable auto-scroll only when near bottom
+    scrollPosition.autoScrollsToBottomOnAppend = geometry.pointsFromBottom < 100
+  }
+```
+
+### Auto-Scroll Configuration
+
+Configure automatic scrolling behavior for messaging UIs:
+
+```swift
+@State private var scrollPosition = TiledScrollPosition(
+  autoScrollsToBottomOnAppend: true,   // Auto-scroll when new messages arrive
+  scrollsToBottomOnReplace: true       // Start at bottom on initial load
+)
+```

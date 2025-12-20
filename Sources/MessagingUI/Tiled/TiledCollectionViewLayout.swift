@@ -28,6 +28,9 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// Size of the footer supplementary view (loading indicator at bottom)
   public var footerSize: CGSize = .zero
 
+  /// Size of the typing indicator supplementary view (between last item and footer)
+  public var typingIndicatorSize: CGSize = .zero
+
   // MARK: - Constants
 
   private let virtualContentHeight: CGFloat = 100_000_000
@@ -121,6 +124,16 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       }
     }
 
+    // Add typing indicator supplementary view if visible
+    if typingIndicatorSize.height > 0 {
+      if let typingAttrs = layoutAttributesForSupplementaryView(
+        ofKind: TiledLoadingIndicatorView.typingIndicatorKind,
+        at: IndexPath(item: 0, section: 0)
+      ), typingAttrs.frame.intersects(rect) {
+        result.append(typingAttrs)
+      }
+    }
+
     // Add footer supplementary view if visible
     if footerSize.height > 0 {
       if let footerAttrs = layoutAttributesForSupplementaryView(
@@ -157,18 +170,43 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
       return attrs
 
+    case TiledLoadingIndicatorView.typingIndicatorKind:
+      guard typingIndicatorSize.height > 0 else { return nil }
+      let attrs = UICollectionViewLayoutAttributes(
+        forSupplementaryViewOfKind: elementKind,
+        with: indexPath
+      )
+      // Position typing indicator below last item (or at anchorY if empty)
+      let bottomY: CGFloat
+      if let lastY = itemYPositions.last, let lastH = itemHeights.last {
+        bottomY = lastY + lastH
+      } else {
+        bottomY = anchorY
+      }
+      attrs.frame = CGRect(
+        x: 0,
+        y: bottomY,
+        width: boundsWidth,
+        height: typingIndicatorSize.height
+      )
+      return attrs
+
     case TiledLoadingIndicatorView.footerKind:
       guard footerSize.height > 0 else { return nil }
       let attrs = UICollectionViewLayoutAttributes(
         forSupplementaryViewOfKind: elementKind,
         with: indexPath
       )
-      // Position footer below last item (or at anchorY if empty)
-      let bottomY: CGFloat
+      // Position footer below typing indicator (or last item, or anchorY if empty)
+      var bottomY: CGFloat
       if let lastY = itemYPositions.last, let lastH = itemHeights.last {
         bottomY = lastY + lastH
       } else {
         bottomY = anchorY
+      }
+      // Add typing indicator height if visible
+      if typingIndicatorSize.height > 0 {
+        bottomY += typingIndicatorSize.height
       }
       attrs.frame = CGRect(
         x: 0,
@@ -461,12 +499,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   private func calculateContentInset() -> UIEdgeInsets {
     guard let bounds = contentBounds() else {
       // Empty list: treat anchorY as bottom position to appear "at bottom"
-      // Account for header/footer if present
+      // Account for header/footer/typingIndicator if present
       var topY = anchorY
       var bottomY = anchorY
 
       if headerSize.height > 0 {
         topY -= headerSize.height
+      }
+      if typingIndicatorSize.height > 0 {
+        bottomY += typingIndicatorSize.height
       }
       if footerSize.height > 0 {
         bottomY += footerSize.height
@@ -482,12 +523,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
     }
 
-    // Adjust bounds to include header/footer
+    // Adjust bounds to include header/footer/typingIndicator
     var topY = bounds.top
     var bottomY = bounds.bottom
 
     if headerSize.height > 0 {
       topY -= headerSize.height
+    }
+    if typingIndicatorSize.height > 0 {
+      bottomY += typingIndicatorSize.height
     }
     if footerSize.height > 0 {
       bottomY += footerSize.height

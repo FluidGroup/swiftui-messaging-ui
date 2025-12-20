@@ -8,11 +8,12 @@
 import SwiftUI
 import UIKit
 
-/// Supplementary view for displaying loading indicators at list edges.
+/// Supplementary view for displaying loading indicators and typing indicator at list edges.
 final class TiledLoadingIndicatorView: UICollectionReusableView {
 
   static let headerKind = "TiledLoadingIndicatorHeader"
   static let footerKind = "TiledLoadingIndicatorFooter"
+  static let typingIndicatorKind = "TiledTypingIndicator"
   static let reuseIdentifier = "TiledLoadingIndicatorView"
 
   private var hostingController: UIHostingController<AnyView>?
