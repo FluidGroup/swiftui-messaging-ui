@@ -103,7 +103,7 @@ struct MessengerDemo: View {
           .padding(.horizontal, 16)
           .padding(.vertical, 12)
         }
-      ) { message, _ in
+      ) { message in
         MessageBubbleCell(item: message)
       }
       .revealConfiguration(.default)

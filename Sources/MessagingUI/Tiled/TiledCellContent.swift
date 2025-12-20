@@ -12,35 +12,38 @@ import SwiftUI
 /// A protocol for defining cell content in TiledView.
 ///
 /// Conforming types describe how to render a cell given an item and context.
-/// The context provides access to reveal offset and other cell-related state
-/// without needing to use `@Environment`.
+/// The context provides access to reveal offset and per-cell state storage.
 ///
 /// ## Example
 ///
 /// ```swift
 /// struct MessageBubbleCell: TiledCellContent {
+///   typealias StateValue = Int  // Per-cell state type
+///
 ///   let item: Message
 ///
-///   func body(context: CellContext) -> some View {
-///     let offset = context.revealOffset(max: 60)
+///   func body(context: CellContext<Int>) -> some View {
+///     let tapCount = context.state.value
 ///
-///     HStack {
-///       MessageBubble(message: item)
-///         .offset(x: -offset)
-///
-///       Text(item.timestamp.formatted())
-///         .opacity(offset / 60)
-///     }
+///     MessageBubble(message: item)
+///       .onTapGesture {
+///         context.state.value += 1
+///       }
 ///   }
 /// }
 ///
 /// // Usage in TiledView
-/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message, state in
+/// TiledView(
+///   dataSource: dataSource,
+///   scrollPosition: $scrollPosition,
+///   makeInitialState: { item in 0 }
+/// ) { message in
 ///   MessageBubbleCell(item: message)
 /// }
 /// ```
 public protocol TiledCellContent {
   associatedtype Item
+  associatedtype StateValue
   associatedtype Body: View
 
   /// The item this cell displays.
@@ -48,18 +51,18 @@ public protocol TiledCellContent {
 
   /// Creates the view for this cell.
   ///
-  /// - Parameter context: The cell context providing reveal offset and other state.
+  /// - Parameter context: The cell context providing reveal offset and per-cell state.
   /// - Returns: The view to display for this cell.
   @ViewBuilder
-  func body(context: CellContext) -> Body
+  func body(context: CellContext<StateValue>) -> Body
 }
 
 // MARK: - CellContext
 
 /// Context provided to `TiledCellContent.body(context:)`.
 ///
-/// Provides access to cell-related state without requiring `@Environment`.
-public struct CellContext {
+/// Provides access to cell-related state including reveal offset and per-cell storage.
+public struct CellContext<StateValue> {
 
   /// The shared reveal state for swipe-to-reveal gesture.
   ///
@@ -70,7 +73,7 @@ public struct CellContext {
   /// ## Example
   ///
   /// ```swift
-  /// func body(context: CellContext) -> some View {
+  /// func body(context: CellContext<MyState>) -> some View {
   ///   let offset = context.cellReveal?.rubberbandedOffset(max: 60) ?? 0
   ///
   ///   HStack {
@@ -85,8 +88,27 @@ public struct CellContext {
   /// ```
   public let cellReveal: CellReveal?
 
-  init(cellReveal: CellReveal?) {
+  /// Per-cell state storage.
+  ///
+  /// Access and modify per-cell state that persists across cell reuse.
+  /// Changes to `state.value` automatically trigger SwiftUI re-renders.
+  ///
+  /// ## Example
+  ///
+  /// ```swift
+  /// func body(context: CellContext<Int>) -> some View {
+  ///   let count = context.state.value
+  ///
+  ///   Button("Tapped \(count) times") {
+  ///     context.state.value += 1
+  ///   }
+  /// }
+  /// ```
+  public let state: CellStateStorage<StateValue>
+
+  init(cellReveal: CellReveal?, state: CellStateStorage<StateValue>) {
     self.cellReveal = cellReveal
+    self.state = state
   }
 }
 
@@ -94,19 +116,27 @@ public struct CellContext {
 
 /// Internal view that wraps TiledCellContent and provides the context.
 ///
-/// This view reads `cellReveal` from the environment and creates
-/// a `CellContext` to pass to the content's `body(context:)` method.
+/// All dependencies are passed via init (no Environment usage).
 public struct TiledCellContentWrapper<Content: TiledCellContent>: View {
 
   let content: Content
+  let cellReveal: CellReveal?
+  let state: CellStateStorage<Content.StateValue>
 
-  @Environment(\.cellReveal) private var cellReveal
-
-  public init(content: Content) {
+  public init(
+    content: Content,
+    cellReveal: CellReveal?,
+    state: CellStateStorage<Content.StateValue>
+  ) {
     self.content = content
+    self.cellReveal = cellReveal
+    self.state = state
   }
 
   public var body: some View {
-    content.body(context: CellContext(cellReveal: cellReveal))
+    content.body(context: CellContext(
+      cellReveal: cellReveal,
+      state: state
+    ))
   }
 }

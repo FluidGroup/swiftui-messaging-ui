@@ -21,34 +21,18 @@ final class TiledViewCell: UICollectionViewCell {
     .zero
   }
 
-  // MARK: - State
+  // MARK: - Configuration
 
-  /// Custom state for this cell
-  var customState: CellState = .empty
-
-  /// Handler called when state changes to update content
-  var _updateConfigurationHandler:
-    @MainActor (TiledViewCell, CellState) -> Void = { _, _ in }
-
-  func configure<Content: View>(with content: Content, cellReveal: CellReveal? = nil) {
+  func configure<Content: View>(with content: Content) {
     contentConfiguration = UIHostingConfiguration {
       content
-        .environment(\.cellReveal, cellReveal)
     }
     .margins(.all, 0)
-  }
-
-  /// Update cell content with new state
-  func updateContent(using customState: CellState) {
-    self.customState = customState
-    _updateConfigurationHandler(self, customState)
   }
 
   override func prepareForReuse() {
     super.prepareForReuse()
     contentConfiguration = nil
-    customState = .empty
-    _updateConfigurationHandler = { _, _ in }
   }
 
   override func preferredLayoutAttributesFitting(

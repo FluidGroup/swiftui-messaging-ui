@@ -6,6 +6,13 @@ import MessagingUI
 struct ChatMessage: Identifiable, Hashable, Equatable, Sendable {
   let id: Int
   var text: String
+}
+
+// MARK: - Cell State
+
+/// Per-cell state managed by CellStateStorage
+struct ChatBubbleCellState {
+  var counter: Int = 0
   var isExpanded: Bool = false
 }
 
@@ -33,14 +40,12 @@ func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
 
 // MARK: - Chat Bubble View
 
-/// Cell with @State to demonstrate state persistence.
-/// When cachesCellState is enabled, counter and isExpanded persist across cell reuse.
+/// Cell that uses CellStateStorage for state persistence.
+/// counter and isExpanded are persisted via CellStateStorage across cell reuse.
 struct ChatBubbleView: View {
 
   let message: ChatMessage
-
-  @State private var counter = 0
-  @State private var isExpanded = false
+  let state: CellStateStorage<ChatBubbleCellState>
 
   var body: some View {
     HStack {
@@ -51,24 +56,24 @@ struct ChatBubbleView: View {
             .foregroundStyle(.secondary)
           Spacer()
           Button {
-            counter += 1
+            state.value.counter += 1
           } label: {
-            Text("\(counter)")
+            Text("\(state.value.counter)")
               .font(.caption)
               .monospacedDigit()
               .padding(.horizontal, 8)
               .padding(.vertical, 2)
               .background(
                 Capsule()
-                  .fill(counter > 0 ? Color.blue : Color(.systemGray5))
+                  .fill(state.value.counter > 0 ? Color.blue : Color(.systemGray5))
               )
-              .foregroundStyle(counter > 0 ? .white : .secondary)
+              .foregroundStyle(state.value.counter > 0 ? .white : .secondary)
           }
           .buttonStyle(.plain)
-          
+
           Button("Expand") {
             withAnimation(.smooth) {
-              isExpanded.toggle()
+              state.value.isExpanded.toggle()
             }
           }
         }
@@ -77,8 +82,8 @@ struct ChatBubbleView: View {
           .font(.system(size: 16))
           .fixedSize(horizontal: false, vertical: true)
 
-        if isExpanded {
-          Text("Expanded (local @State)")
+        if state.value.isExpanded {
+          Text("Expanded (CellStateStorage)")
             .font(.caption)
             .foregroundStyle(.blue)
             .padding(.top, 4)
@@ -92,7 +97,7 @@ struct ChatBubbleView: View {
 
       Spacer(minLength: 44)
     }
-    .contentShape(Rectangle())  
+    .contentShape(Rectangle())
     .padding(.horizontal, 16)
     .padding(.vertical, 4)
   }
@@ -102,42 +107,47 @@ struct ChatBubbleView: View {
 
 /// A cell wrapper conforming to TiledCellContent for use with TiledView
 struct ChatBubbleCell: TiledCellContent {
+  typealias StateValue = ChatBubbleCellState
 
   let item: ChatMessage
 
-  func body(context: CellContext) -> some View {
-    ChatBubbleView(message: item)
+  func body(context: CellContext<ChatBubbleCellState>) -> some View {
+    ChatBubbleView(message: item, state: context.state)
   }
 }
 
 /// A cell wrapper with NavigationLink for use with TiledView
 struct ChatBubbleCellWithNavigation: TiledCellContent {
+  typealias StateValue = ChatBubbleCellState
 
   let item: ChatMessage
   let namespace: Namespace.ID
   let useMatchedTransition: Bool
 
   @ViewBuilder
-  func body(context: CellContext) -> some View {
+  func body(context: CellContext<ChatBubbleCellState>) -> some View {
     if #available(iOS 18.0, *), useMatchedTransition {
       NavigationLink(value: item) {
-        ChatBubbleView(message: item)
+        ChatBubbleView(message: item, state: context.state)
           .matchedTransitionSource(id: item.id, in: namespace)
       }
     } else {
       NavigationLink(value: item) {
-        ChatBubbleView(message: item)
+        ChatBubbleView(message: item, state: context.state)
       }
     }
   }
 }
 
 #Preview("SwiftUI Direct") {
+  @Previewable @State var state = CellStateStorage(ChatBubbleCellState())
+
   ChatBubbleView(
     message: .init(
       id: 1,
       text: "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。"
-    )
+    ),
+    state: state
   )
 }
 struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
@@ -180,19 +190,21 @@ struct HostingControllerWrapper<Content: View>: UIViewControllerRepresentable {
   }
 }
 #Preview("UIHostingController") {
-  
+
   @Previewable @State var size: CGSize = .zero
+  @Previewable @State var state = CellStateStorage(ChatBubbleCellState())
 
   VStack {
     Text("Size: \(size.width) x \(size.height)")
     ZStack {
       HostingControllerWrapper(
-        content: 
+        content:
             ChatBubbleView(
               message: .init(
                 id: 1,
                 text: "昨日の映画、すごく面白かったです！特にラストシーンが印象的でした。もう一度観たいなと思っています。"
-              )
+              ),
+              state: state
             )
       )
     }
