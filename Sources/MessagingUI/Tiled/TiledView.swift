@@ -1137,11 +1137,13 @@ final class _TiledView<
   private func updateTypingIndicatorVisibility() {
 
     let boundsWidth = bounds.width
-    let wasVisible = tiledLayout.typingIndicatorSize.height > 0
+    let oldTypingHeight = tiledLayout.typingIndicatorSize.height
+    let wasVisible = oldTypingHeight > 0  // Based on what was actually rendered
+    let isVisible = typingIndicator?.isVisible ?? false  // Based on current intent
 
     // Measure typing indicator size
     let typingHeight: CGFloat
-    if let indicator = typingIndicator, indicator.isVisible {
+    if let indicator = typingIndicator, isVisible {
       typingHeight = measureLoadingIndicatorSize(
         indicator.content,
         width: boundsWidth
@@ -1150,7 +1152,25 @@ final class _TiledView<
     } else {
       typingHeight = 0
     }
-    let isVisible = typingHeight > 0
+
+    // Handle hiding: adjust contentOffset to prevent jump
+    if wasVisible && !isVisible {
+      let heightDiff = oldTypingHeight
+      let targetOffsetY = collectionView.contentOffset.y - heightDiff
+
+      // TODO: Consider using SpringScrollAnimator for smooth transition
+      // Set offset FIRST, then update layout
+      collectionView.contentOffset = CGPoint(
+        x: collectionView.contentOffset.x,
+        y: targetOffsetY
+      )
+
+      tiledLayout.typingIndicatorSize = CGSize(width: boundsWidth, height: 0)
+      tiledLayout.invalidateLayout()
+      collectionView.layoutIfNeeded()
+
+      return
+    }
 
     // Update layout
     tiledLayout.typingIndicatorSize = CGSize(
@@ -1159,15 +1179,15 @@ final class _TiledView<
     )
     tiledLayout.invalidateLayout()
 
-    // Only scroll when typing indicator becomes visible (not when hiding)
-    guard !wasVisible && isVisible else { 
+    // Only scroll when typing indicator becomes visible
+    guard !wasVisible && isVisible else {
       return
     }
 
     // Check if user is near bottom (within threshold)
     let isNearBottom = collectionView.tiledScrollGeometry.pointsFromBottom < 100
-    
-    guard isNearBottom else { 
+
+    guard isNearBottom else {
       return
     }
 
