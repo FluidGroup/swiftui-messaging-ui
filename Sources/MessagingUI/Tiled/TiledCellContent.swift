@@ -93,6 +93,15 @@ public struct CellContext<StateValue> {
   /// Access and modify per-cell state that persists across cell reuse.
   /// Changes to `state.value` automatically trigger SwiftUI re-renders.
   ///
+  /// ## Important: Why Not @State?
+  ///
+  /// You can use `@State` inside cell views, but **the state will be lost when
+  /// the cell is reused**. This is because `TiledView` uses `UICollectionView`
+  /// which recycles cells for performance. When a cell scrolls off-screen and
+  /// is reused for a different item, any `@State` values are reset.
+  ///
+  /// Use `CellStateStorage` instead for state that should persist across cell reuse.
+  ///
   /// ## Basic Example
   ///
   /// ```swift
