@@ -688,9 +688,9 @@ final class _TiledView<
       guard !indexPaths.isEmpty else { return }
 
       UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates({
-          collectionView.reloadItems(at: indexPaths)
-        }, completion: nil)
+        collectionView.performBatchUpdates {
+          collectionView.reconfigureItems(at: indexPaths)
+        }
       }
 
     case .remove(let ids):
