@@ -257,17 +257,17 @@ struct SwiftDataMemoDemo: View {
       if let store {
         TiledView(
           dataSource: store.dataSource,
-          scrollPosition: $scrollPosition,
-          prependLoader: .loader(perform: {
-            store.loadMore()
-          }, isProcessing: false) {
-            EmptyView()
-          }
+          scrollPosition: $scrollPosition
         ) { item in
           MemoBubbleCell(item: item) {
             store.deleteMemo(id: item.id)
           }
         }
+        .prependLoader(.loader(perform: {
+          store.loadMore()
+        }, isProcessing: false) {
+          EmptyView()
+        })
       } else {
         Spacer()
         ProgressView()

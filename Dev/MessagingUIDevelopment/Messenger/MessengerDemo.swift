@@ -65,47 +65,47 @@ struct MessengerDemo: View {
       // Messages
       TiledView(
         dataSource: dataSource,
-        scrollPosition: $scrollPosition,
-        prependLoader: .loader(
-          perform: { /* triggered by button */ },
-          isProcessing: isPrependLoading
-        ) {
-          HStack(spacing: 8) {
-            ProgressView()
-            Text("Loading older messages...")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 12)
-        },
-        appendLoader: .loader(
-          perform: { /* triggered by button */ },
-          isProcessing: isAppendLoading
-        ) {
-          HStack(spacing: 8) {
-            ProgressView()
-            Text("Loading newer messages...")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 12)
-        },
-        typingIndicator: .indicator(isVisible: isTyping) {
-          HStack(spacing: 8) {
-            TypingDotsView()
-            Text("Someone is typing...")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 16)
-          .padding(.vertical, 12)
-        }
+        scrollPosition: $scrollPosition
       ) { message in
         MessageBubbleCell(item: message)
       }
+      .prependLoader(.loader(
+        perform: { /* triggered by button */ },
+        isProcessing: isPrependLoading
+      ) {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Loading older messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+      })
+      .appendLoader(.loader(
+        perform: { /* triggered by button */ },
+        isProcessing: isAppendLoading
+      ) {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Loading newer messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+      })
+      .typingIndicator(.indicator(isVisible: isTyping) {
+        HStack(spacing: 8) {
+          TypingDotsView()
+          Text("Someone is typing...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+      })
       .revealConfiguration(.default)
 
       Divider()

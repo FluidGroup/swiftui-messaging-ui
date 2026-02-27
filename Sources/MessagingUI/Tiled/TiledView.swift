@@ -113,26 +113,23 @@ private struct RevealGestureState: ~Copyable {
 ///
 /// ```swift
 /// // Async mode (auto-managed loading state)
-/// TiledView(
-///   dataSource: dataSource,
-///   scrollPosition: $scrollPosition,
-///   prependLoader: .loader(perform: {
-///     await store.loadOlder()
-///   }) {
-///     ProgressView()
-///   }
-/// )
+/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message in
+///   MessageBubbleCell(item: message)
+/// }
+/// .prependLoader(.loader(perform: {
+///   await store.loadOlder()
+/// }) {
+///   ProgressView()
+/// })
 ///
 /// // Sync mode (manual loading state)
-/// TiledView(
-///   ...
-///   prependLoader: .loader(
-///     perform: { store.loadOlder() },
-///     isProcessing: store.isPrependLoading
-///   ) {
-///     ProgressView()
-///   }
-/// )
+/// TiledView(...)
+/// .prependLoader(.loader(
+///   perform: { store.loadOlder() },
+///   isProcessing: store.isPrependLoading
+/// ) {
+///   ProgressView()
+/// })
 /// ```
 public struct Loader<Indicator: View> {
 
@@ -181,14 +178,12 @@ public struct Loader<Indicator: View> {
 extension Optional where Wrapped == Loader<Never> {
   /// A disabled loader that does nothing.
   ///
-  /// Use this when you need to specify a loader parameter but don't want any loading behavior.
+  /// Use this when you want to explicitly pass a disabled loader to a modifier.
+  /// Note: Since supplementary views use modifiers, you can simply omit the modifier instead.
   /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   prependLoader: .loader(perform: { ... }) { ... },
-  ///   appendLoader: .disabled  // No append loading
-  /// ) { ... }
+  /// TiledView(...)
+  ///   .prependLoader(.loader(perform: { ... }) { ... })
+  ///   // appendLoader is disabled by default (modifier not called)
   /// ```
   public static var disabled: Loader<Never>? { nil }
 }
@@ -201,15 +196,12 @@ extension Optional where Wrapped == Loader<Never> {
 /// The indicator appears below the last message and above the append loader.
 ///
 /// ```swift
-/// TiledView(
-///   dataSource: dataSource,
-///   scrollPosition: $scrollPosition,
-///   typingIndicator: .indicator(isVisible: store.isTyping) {
-///     TypingBubbleView(users: store.typingUsers)
-///   }
-/// ) { message, state in
-///   MessageBubbleView(message: message)
+/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message in
+///   MessageBubbleCell(item: message)
 /// }
+/// .typingIndicator(.indicator(isVisible: store.isTyping) {
+///   TypingBubbleView(users: store.typingUsers)
+/// })
 /// ```
 public struct TypingIndicator<Content: View> {
 
@@ -235,15 +227,48 @@ public struct TypingIndicator<Content: View> {
 extension Optional where Wrapped == TypingIndicator<Never> {
   /// A disabled typing indicator that never shows.
   ///
-  /// Use this when you need to specify a typingIndicator parameter but don't want the feature.
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   typingIndicator: .disabled
-  /// ) { ... }
-  /// ```
+  /// Note: Since supplementary views use modifiers, you can simply omit the
+  /// `.typingIndicator()` modifier instead.
   public static var disabled: TypingIndicator<Never>? { nil }
+}
+
+// MARK: - HeaderContent
+
+/// Configuration for displaying a static header at the top of the message list.
+///
+/// Use this to show content like "Start of conversation" or channel info
+/// between the prepend loader and the first message item.
+///
+/// ```swift
+/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message in
+///   MessageBubbleCell(item: message)
+/// }
+/// .headerContent(.header {
+///   Text("Start of conversation")
+///     .foregroundStyle(.secondary)
+///     .padding()
+/// })
+/// ```
+public struct HeaderContent<Content: View> {
+
+  let content: Content
+
+  /// Creates a header content configuration.
+  ///
+  /// - Parameter content: The view to display as the header
+  public static func header(
+    @ViewBuilder content: () -> Content
+  ) -> Self {
+    HeaderContent(content: content())
+  }
+}
+
+extension Optional where Wrapped == HeaderContent<Never> {
+  /// A disabled header content that never shows.
+  ///
+  /// Note: Since supplementary views use modifiers, you can simply omit the
+  /// `.headerContent()` modifier instead.
+  public static var disabled: HeaderContent<Never>? { nil }
 }
 
 // MARK: - _TiledView
@@ -254,6 +279,7 @@ final class _TiledView<
   PrependLoadingView: View,
   AppendLoadingView: View,
   TypingIndicatorView: View,
+  HeaderContentView: View,
   StateValue
 >: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
 
@@ -354,8 +380,23 @@ final class _TiledView<
     updateTypingIndicatorVisibility()
   }
 
+  // MARK: - Header Content
+
+  /// Current header content configuration
+  private var headerContent: HeaderContent<HeaderContentView>?
+
+  /// Sets the header content and updates visibility.
+  func setHeaderContent(_ header: HeaderContent<HeaderContentView>?) {
+    let hadContent = headerContent != nil
+    headerContent = header
+    let hasContent = header != nil
+
+    guard hadContent != hasContent else { return }
+    updateHeaderContentVisibility()
+  }
+
   /// Prototype view for measuring loading indicator size
-  private let sizingLoadingIndicator = TiledLoadingIndicatorView()
+  private let sizingSupplementaryView = TiledSupplementaryView()
 
   /// Additional content inset for keyboard, headers, footers, etc.
   var additionalContentInset: EdgeInsets = .init() {
@@ -483,19 +524,24 @@ final class _TiledView<
 
       // Register supplementary views for loading indicators and typing indicator
       collectionView.register(
-        TiledLoadingIndicatorView.self,
-        forSupplementaryViewOfKind: TiledLoadingIndicatorView.headerKind,
-        withReuseIdentifier: TiledLoadingIndicatorView.reuseIdentifier
+        TiledSupplementaryView.self,
+        forSupplementaryViewOfKind: TiledSupplementaryView.headerKind,
+        withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
       )
       collectionView.register(
-        TiledLoadingIndicatorView.self,
-        forSupplementaryViewOfKind: TiledLoadingIndicatorView.footerKind,
-        withReuseIdentifier: TiledLoadingIndicatorView.reuseIdentifier
+        TiledSupplementaryView.self,
+        forSupplementaryViewOfKind: TiledSupplementaryView.footerKind,
+        withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
       )
       collectionView.register(
-        TiledLoadingIndicatorView.self,
-        forSupplementaryViewOfKind: TiledLoadingIndicatorView.typingIndicatorKind,
-        withReuseIdentifier: TiledLoadingIndicatorView.reuseIdentifier
+        TiledSupplementaryView.self,
+        forSupplementaryViewOfKind: TiledSupplementaryView.typingIndicatorKind,
+        withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
+      )
+      collectionView.register(
+        TiledSupplementaryView.self,
+        forSupplementaryViewOfKind: TiledSupplementaryView.contentHeaderKind,
+        withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
       )
 
       let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapBackground(_:)))
@@ -739,20 +785,24 @@ final class _TiledView<
   ) -> UICollectionReusableView {
     let view = collectionView.dequeueReusableSupplementaryView(
       ofKind: kind,
-      withReuseIdentifier: TiledLoadingIndicatorView.reuseIdentifier,
+      withReuseIdentifier: TiledSupplementaryView.reuseIdentifier,
       for: indexPath
-    ) as! TiledLoadingIndicatorView
+    ) as! TiledSupplementaryView
 
     switch kind {
-    case TiledLoadingIndicatorView.headerKind:
+    case TiledSupplementaryView.headerKind:
       if let loader = prependTrigger.loader {
         view.configure(with: loader.indicator)
       }
-    case TiledLoadingIndicatorView.typingIndicatorKind:
+    case TiledSupplementaryView.typingIndicatorKind:
       if let indicator = typingIndicator, indicator.isVisible {
         view.configure(with: indicator.content)
       }
-    case TiledLoadingIndicatorView.footerKind:
+    case TiledSupplementaryView.contentHeaderKind:
+      if let header = headerContent {
+        view.configure(with: header.content)
+      }
+    case TiledSupplementaryView.footerKind:
       if let loader = appendTrigger.loader {
         view.configure(with: loader.indicator)
       }
@@ -1167,17 +1217,33 @@ final class _TiledView<
     scrollRectToVisible(typingIndicatorRect, animated: true)
   }
 
+  private func updateHeaderContentVisibility() {
+    guard collectionView != nil else { return }
+
+    let boundsWidth = bounds.width
+
+    let headerContentHeight: CGFloat
+    if let header = headerContent {
+      headerContentHeight = measureLoadingIndicatorSize(header.content, width: boundsWidth).height
+    } else {
+      headerContentHeight = 0
+    }
+
+    tiledLayout.headerContentSize = CGSize(width: boundsWidth, height: headerContentHeight)
+    tiledLayout.invalidateLayout()
+  }
+
   private func measureLoadingIndicatorSize<V: View>(_ view: V, width: CGFloat) -> CGSize {
-    sizingLoadingIndicator.configure(with: view)
-    sizingLoadingIndicator.bounds.size.width = width
-    sizingLoadingIndicator.layoutIfNeeded()
+    sizingSupplementaryView.configure(with: view)
+    sizingSupplementaryView.bounds.size.width = width
+    sizingSupplementaryView.layoutIfNeeded()
 
     let targetSize = CGSize(
       width: width,
       height: UIView.layoutFittingCompressedSize.height
     )
 
-    let size = sizingLoadingIndicator.systemLayoutSizeFitting(
+    let size = sizingSupplementaryView.systemLayoutSizeFitting(
       targetSize,
       withHorizontalFittingPriority: .required,
       verticalFittingPriority: .fittingSizeLevel
@@ -1197,10 +1263,11 @@ struct TiledViewRepresentable<
   PrependLoadingView: View,
   AppendLoadingView: View,
   TypingIndicatorContent: View,
+  HeaderContentView: View,
   StateValue
 >: UIViewRepresentable {
 
-  typealias UIViewType = _TiledView<Item, Cell, PrependLoadingView, AppendLoadingView, TypingIndicatorContent, StateValue>
+  typealias UIViewType = _TiledView<Item, Cell, PrependLoadingView, AppendLoadingView, TypingIndicatorContent, HeaderContentView, StateValue>
 
   let dataSource: ListDataSource<Item>
   let makeInitialState: (Item) -> StateValue
@@ -1214,6 +1281,7 @@ struct TiledViewRepresentable<
   let prependLoader: Loader<PrependLoadingView>?
   let appendLoader: Loader<AppendLoadingView>?
   let typingIndicator: TypingIndicator<TypingIndicatorContent>?
+  let headerContent: HeaderContent<HeaderContentView>?
   @Binding var scrollPosition: TiledScrollPosition
 
   init(
@@ -1229,6 +1297,7 @@ struct TiledViewRepresentable<
     prependLoader: Loader<PrependLoadingView>?,
     appendLoader: Loader<AppendLoadingView>?,
     typingIndicator: TypingIndicator<TypingIndicatorContent>?,
+    headerContent: HeaderContent<HeaderContentView>?,
     cellBuilder: @escaping (Item, CellReveal?, CellStateStorage<StateValue>) -> Cell
   ) {
     self.dataSource = dataSource
@@ -1243,6 +1312,7 @@ struct TiledViewRepresentable<
     self.prependLoader = prependLoader
     self.appendLoader = appendLoader
     self.typingIndicator = typingIndicator
+    self.headerContent = headerContent
     self.cellBuilder = cellBuilder
   }
 
@@ -1278,9 +1348,10 @@ struct TiledViewRepresentable<
     uiView.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
     uiView.revealConfiguration = revealConfiguration
 
-    // Update loaders and typing indicator
+    // Update loaders, typing indicator, and header content
     uiView.setLoaders(prepend: prependLoader, append: appendLoader)
     uiView.setTypingIndicator(typingIndicator)
+    uiView.setHeaderContent(headerContent)
 
     uiView.applyDataSource(dataSource)
     uiView.applyScrollPosition(scrollPosition)
@@ -1323,15 +1394,34 @@ struct TiledViewRepresentable<
 ///     TiledView(
 ///       dataSource: dataSource,
 ///       scrollPosition: $scrollPosition
-///     ) { message, state in
-///       MessageBubbleView(message: message)
+///     ) { message in
+///       MessageBubbleCell(item: message)
 ///     }
+///     .prependLoader(.loader(perform: { await store.loadOlder() }) {
+///       ProgressView()
+///     })
+///     .typingIndicator(.indicator(isVisible: store.isTyping) {
+///       TypingBubbleView()
+///     })
+///     .headerContent(.header {
+///       Text("Start of conversation")
+///     })
 ///     .onAppear {
 ///       dataSource.replace(with: initialMessages)
 ///     }
 ///   }
 /// }
 /// ```
+///
+/// ## Supplementary Views
+///
+/// Supplementary views (loaders, typing indicator, header) are configured via modifiers.
+/// Each modifier can only be called once (enforced by generic constraints).
+///
+/// - `.prependLoader(_:)` — Loading indicator at top for loading older items
+/// - `.appendLoader(_:)` — Loading indicator at bottom for loading newer items
+/// - `.typingIndicator(_:)` — Typing indicator shown below the last message
+/// - `.headerContent(_:)` — Static header between prepend loader and first item
 ///
 /// ## ListDataSource
 ///
@@ -1403,17 +1493,18 @@ struct TiledViewRepresentable<
 ///
 /// ## Infinite Scrolling
 ///
-/// Use `onPrepend` to load older content when scrolling near top:
+/// Use `.prependLoader()` modifier to load older content when scrolling near top:
 ///
 /// ```swift
-/// TiledView(
-///   dataSource: dataSource,
-///   scrollPosition: $scrollPosition,
-///   onPrepend: {
-///     let olderMessages = await api.fetchOlderMessages()
-///     dataSource.prepend(olderMessages)
-///   }
-/// ) { ... }
+/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message in
+///   MessageBubbleCell(item: message)
+/// }
+/// .prependLoader(.loader(perform: {
+///   let olderMessages = await api.fetchOlderMessages()
+///   dataSource.prepend(olderMessages)
+/// }) {
+///   ProgressView()
+/// })
 /// ```
 ///
 /// ## Virtual Content Layout Details
@@ -1431,6 +1522,7 @@ public struct TiledView<
   PrependLoadingView: View,
   AppendLoadingView: View,
   TypingIndicatorContent: View,
+  HeaderContentView: View,
   StateValue
 >: View {
 
@@ -1445,6 +1537,7 @@ public struct TiledView<
   let prependLoader: Loader<PrependLoadingView>?
   let appendLoader: Loader<AppendLoadingView>?
   let typingIndicator: TypingIndicator<TypingIndicatorContent>?
+  let headerContent: HeaderContent<HeaderContentView>?
   @Binding var scrollPosition: TiledScrollPosition
 
   /// Internal initializer for creating TiledView with all parameters (used by modifiers)
@@ -1460,6 +1553,7 @@ public struct TiledView<
     prependLoader: Loader<PrependLoadingView>?,
     appendLoader: Loader<AppendLoadingView>?,
     typingIndicator: TypingIndicator<TypingIndicatorContent>?,
+    headerContent: HeaderContent<HeaderContentView>?,
     scrollPosition: Binding<TiledScrollPosition>
   ) {
     self.dataSource = dataSource
@@ -1473,16 +1567,18 @@ public struct TiledView<
     self.prependLoader = prependLoader
     self.appendLoader = appendLoader
     self.typingIndicator = typingIndicator
+    self.headerContent = headerContent
     self._scrollPosition = scrollPosition
   }
 }
 
-// MARK: - Init without loaders
+// MARK: - Public Initializers
 
-extension TiledView where PrependLoadingView == Never, AppendLoadingView == Never, TypingIndicatorContent == Never {
+extension TiledView where PrependLoadingView == Never, AppendLoadingView == Never, TypingIndicatorContent == Never, HeaderContentView == Never {
 
-  /// Creates a TiledView without loaders or typing indicator.
+  /// Creates a TiledView.
   ///
+  /// Add supplementary views using modifiers:
   /// ```swift
   /// TiledView(
   ///   dataSource: dataSource,
@@ -1491,6 +1587,9 @@ extension TiledView where PrependLoadingView == Never, AppendLoadingView == Neve
   /// ) { message in
   ///   MessageBubbleCell(item: message)
   /// }
+  /// .prependLoader(.loader(perform: { await store.loadOlder() }) { ProgressView() })
+  /// .typingIndicator(.indicator(isVisible: store.isTyping) { TypingBubbleView() })
+  /// .headerContent(.header { Text("Start of conversation") })
   /// ```
   ///
   /// - Parameters:
@@ -1510,6 +1609,7 @@ extension TiledView where PrependLoadingView == Never, AppendLoadingView == Neve
     self.prependLoader = nil
     self.appendLoader = nil
     self.typingIndicator = nil
+    self.headerContent = nil
     self.cellBuilder = { item, cellReveal, storage in
       TiledCellContentWrapper(
         content: cellBuilder(item),
@@ -1520,552 +1620,119 @@ extension TiledView where PrependLoadingView == Never, AppendLoadingView == Neve
   }
 }
 
-// MARK: - Init with loaders
+extension TiledView where StateValue == Void, PrependLoadingView == Never, AppendLoadingView == Never, TypingIndicatorContent == Never, HeaderContentView == Never {
 
-extension TiledView where TypingIndicatorContent == Never {
-
-  /// Creates a TiledView with prepend and/or append loaders.
+  /// Creates a TiledView without per-cell state.
   ///
-  /// Use this initializer when you need infinite scrolling with loading indicators.
-  ///
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   makeInitialState: { _ in 0 },
-  ///   prependLoader: .loader(perform: {
-  ///     await store.loadOlder()
-  ///   }) {
-  ///     ProgressView()
-  ///   },
-  ///   appendLoader: .loader(perform: {
-  ///     await store.loadNewer()
-  ///   }) {
-  ///     ProgressView()
-  ///   }
-  /// ) { message in
-  ///   MessageBubbleCell(item: message)
-  /// }
-  /// ```
-  ///
-  /// - Parameters:
-  ///   - dataSource: The data source containing items to display.
-  ///   - scrollPosition: Binding to control scroll position.
-  ///   - makeInitialState: A closure that creates the initial state for each item.
-  ///   - prependLoader: Optional loader for prepend/load-older operations.
-  ///   - appendLoader: Optional loader for append/load-newer operations.
-  ///   - cellBuilder: A closure that returns a `TiledCellContent` for each item.
+  /// Convenience initializer where `makeInitialState` defaults to `{ _ in () }`.
   public init<CellContent: TiledCellContent>(
     dataSource: ListDataSource<Item>,
     scrollPosition: Binding<TiledScrollPosition>,
-    makeInitialState: @escaping (Item) -> StateValue,
-    prependLoader: Loader<PrependLoadingView>?,
-    appendLoader: Loader<AppendLoadingView>?,
     cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, StateValue == CellContent.StateValue {
-    self.dataSource = dataSource
-    self._scrollPosition = scrollPosition
-    self.makeInitialState = makeInitialState
-    self.prependLoader = prependLoader
-    self.appendLoader = appendLoader
-    self.typingIndicator = nil
-    self.cellBuilder = { item, cellReveal, storage in
-      TiledCellContentWrapper(
-        content: cellBuilder(item),
-        cellReveal: cellReveal,
-        state: storage
-      )
-    }
+  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
+    self.init(
+      dataSource: dataSource,
+      scrollPosition: scrollPosition,
+      makeInitialState: { _ in () },
+      cellBuilder: cellBuilder
+    )
   }
 }
 
-// MARK: - Init with loaders and typing indicator
-
-extension TiledView {
-
-  /// Creates a TiledView with prepend/append loaders and a typing indicator.
-  ///
-  /// Use this initializer when you need infinite scrolling with loading indicators
-  /// and a typing indicator for showing when other users are typing.
-  ///
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   makeInitialState: { _ in 0 },
-  ///   prependLoader: .loader(perform: { await store.loadOlder() }) { ProgressView() },
-  ///   appendLoader: .disabled,
-  ///   typingIndicator: .indicator(isVisible: store.isTyping) {
-  ///     TypingBubbleView(users: store.typingUsers)
-  ///   }
-  /// ) { message in
-  ///   MessageBubbleCell(item: message)
-  /// }
-  /// ```
-  ///
-  /// - Parameters:
-  ///   - dataSource: The data source containing items to display.
-  ///   - scrollPosition: Binding to control scroll position.
-  ///   - makeInitialState: A closure that creates the initial state for each item.
-  ///   - prependLoader: Optional loader for prepend/load-older operations.
-  ///   - appendLoader: Optional loader for append/load-newer operations.
-  ///   - typingIndicator: Optional typing indicator configuration.
-  ///   - cellBuilder: A closure that returns a `TiledCellContent` for each item.
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    makeInitialState: @escaping (Item) -> StateValue,
-    prependLoader: Loader<PrependLoadingView>?,
-    appendLoader: Loader<AppendLoadingView>?,
-    typingIndicator: TypingIndicator<TypingIndicatorContent>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, StateValue == CellContent.StateValue {
-    self.dataSource = dataSource
-    self._scrollPosition = scrollPosition
-    self.makeInitialState = makeInitialState
-    self.prependLoader = prependLoader
-    self.appendLoader = appendLoader
-    self.typingIndicator = typingIndicator
-    self.cellBuilder = { item, cellReveal, storage in
-      TiledCellContentWrapper(
-        content: cellBuilder(item),
-        cellReveal: cellReveal,
-        state: storage
-      )
-    }
-  }
-}
-
-// MARK: - Init with prependLoader only (appendLoader disabled by default)
-
-extension TiledView where AppendLoadingView == Never, TypingIndicatorContent == Never {
-
-  /// Creates a TiledView with prepend loader only.
-  ///
-  /// Use this when you only need to load older items (prepend).
-  /// The appendLoader defaults to `.disabled`.
-  ///
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   makeInitialState: { _ in 0 },
-  ///   prependLoader: .loader(perform: { await store.loadOlder() }) {
-  ///     ProgressView()
-  ///   }
-  /// ) { message in
-  ///   MessageBubbleCell(item: message)
-  /// }
-  /// ```
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    makeInitialState: @escaping (Item) -> StateValue,
-    prependLoader: Loader<PrependLoadingView>?,
-    appendLoader: Loader<Never>? = .disabled,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, StateValue == CellContent.StateValue {
-    self.dataSource = dataSource
-    self._scrollPosition = scrollPosition
-    self.makeInitialState = makeInitialState
-    self.prependLoader = prependLoader
-    self.appendLoader = appendLoader
-    self.typingIndicator = nil
-    self.cellBuilder = { item, cellReveal, storage in
-      TiledCellContentWrapper(
-        content: cellBuilder(item),
-        cellReveal: cellReveal,
-        state: storage
-      )
-    }
-  }
-}
-
-// MARK: - Init with prependLoader and typingIndicator (appendLoader disabled by default)
-
-extension TiledView where AppendLoadingView == Never {
-
-  /// Creates a TiledView with prepend loader and typing indicator.
-  ///
-  /// Use this when you need to load older items and show a typing indicator.
-  /// The appendLoader defaults to `.disabled`.
-  ///
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   makeInitialState: { _ in 0 },
-  ///   prependLoader: .loader(perform: { await store.loadOlder() }) {
-  ///     ProgressView()
-  ///   },
-  ///   typingIndicator: .indicator(isVisible: store.isTyping) {
-  ///     TypingBubbleView()
-  ///   }
-  /// ) { message in
-  ///   MessageBubbleCell(item: message)
-  /// }
-  /// ```
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    makeInitialState: @escaping (Item) -> StateValue,
-    prependLoader: Loader<PrependLoadingView>?,
-    appendLoader: Loader<Never>? = .disabled,
-    typingIndicator: TypingIndicator<TypingIndicatorContent>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, StateValue == CellContent.StateValue {
-    self.dataSource = dataSource
-    self._scrollPosition = scrollPosition
-    self.makeInitialState = makeInitialState
-    self.prependLoader = prependLoader
-    self.appendLoader = appendLoader
-    self.typingIndicator = typingIndicator
-    self.cellBuilder = { item, cellReveal, storage in
-      TiledCellContentWrapper(
-        content: cellBuilder(item),
-        cellReveal: cellReveal,
-        state: storage
-      )
-    }
-  }
-}
-
-// MARK: - Init with appendLoader only (prependLoader disabled by default)
-
-extension TiledView where PrependLoadingView == Never, TypingIndicatorContent == Never {
-
-  /// Creates a TiledView with append loader only.
-  ///
-  /// Use this when you only need to load newer items (append).
-  /// The prependLoader defaults to `.disabled`.
-  ///
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   makeInitialState: { _ in 0 },
-  ///   appendLoader: .loader(perform: { await store.loadNewer() }) {
-  ///     ProgressView()
-  ///   }
-  /// ) { message in
-  ///   MessageBubbleCell(item: message)
-  /// }
-  /// ```
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    makeInitialState: @escaping (Item) -> StateValue,
-    prependLoader: Loader<Never>? = .disabled,
-    appendLoader: Loader<AppendLoadingView>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, StateValue == CellContent.StateValue {
-    self.dataSource = dataSource
-    self._scrollPosition = scrollPosition
-    self.makeInitialState = makeInitialState
-    self.prependLoader = prependLoader
-    self.appendLoader = appendLoader
-    self.typingIndicator = nil
-    self.cellBuilder = { item, cellReveal, storage in
-      TiledCellContentWrapper(
-        content: cellBuilder(item),
-        cellReveal: cellReveal,
-        state: storage
-      )
-    }
-  }
-}
-
-// MARK: - Init with appendLoader and typingIndicator (prependLoader disabled by default)
+// MARK: - Supplementary View Modifiers
 
 extension TiledView where PrependLoadingView == Never {
 
-  /// Creates a TiledView with append loader and typing indicator.
-  ///
-  /// Use this when you need to load newer items and show a typing indicator.
-  /// The prependLoader defaults to `.disabled`.
-  ///
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   makeInitialState: { _ in 0 },
-  ///   appendLoader: .loader(perform: { await store.loadNewer() }) {
-  ///     ProgressView()
-  ///   },
-  ///   typingIndicator: .indicator(isVisible: store.isTyping) {
-  ///     TypingBubbleView()
-  ///   }
-  /// ) { message in
-  ///   MessageBubbleCell(item: message)
-  /// }
-  /// ```
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    makeInitialState: @escaping (Item) -> StateValue,
-    prependLoader: Loader<Never>? = .disabled,
-    appendLoader: Loader<AppendLoadingView>?,
-    typingIndicator: TypingIndicator<TypingIndicatorContent>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, StateValue == CellContent.StateValue {
-    self.dataSource = dataSource
-    self._scrollPosition = scrollPosition
-    self.makeInitialState = makeInitialState
-    self.prependLoader = prependLoader
-    self.appendLoader = appendLoader
-    self.typingIndicator = typingIndicator
-    self.cellBuilder = { item, cellReveal, storage in
-      TiledCellContentWrapper(
-        content: cellBuilder(item),
-        cellReveal: cellReveal,
-        state: storage
-      )
-    }
-  }
-}
-
-// MARK: - Init with typingIndicator only (loaders disabled by default)
-
-extension TiledView where PrependLoadingView == Never, AppendLoadingView == Never {
-
-  /// Creates a TiledView with typing indicator only.
-  ///
-  /// Use this when you only need to show a typing indicator without loaders.
-  ///
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition,
-  ///   makeInitialState: { _ in 0 },
-  ///   typingIndicator: .indicator(isVisible: store.isTyping) {
-  ///     TypingBubbleView()
-  ///   }
-  /// ) { message in
-  ///   MessageBubbleCell(item: message)
-  /// }
-  /// ```
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    makeInitialState: @escaping (Item) -> StateValue,
-    typingIndicator: TypingIndicator<TypingIndicatorContent>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, StateValue == CellContent.StateValue {
-    self.dataSource = dataSource
-    self._scrollPosition = scrollPosition
-    self.makeInitialState = makeInitialState
-    self.prependLoader = nil
-    self.appendLoader = nil
-    self.typingIndicator = typingIndicator
-    self.cellBuilder = { item, cellReveal, storage in
-      TiledCellContentWrapper(
-        content: cellBuilder(item),
-        cellReveal: cellReveal,
-        state: storage
-      )
-    }
-  }
-}
-
-// MARK: - Convenience Init for Void StateValue (no makeInitialState needed)
-
-extension TiledView where StateValue == Void, PrependLoadingView == Never, AppendLoadingView == Never, TypingIndicatorContent == Never {
-
-  /// Creates a TiledView without loaders or typing indicator.
-  ///
-  /// This is a convenience initializer for cells that don't use per-cell state.
-  /// The `makeInitialState` closure defaults to `{ _ in () }`.
-  ///
-  /// ```swift
-  /// TiledView(
-  ///   dataSource: dataSource,
-  ///   scrollPosition: $scrollPosition
-  /// ) { message in
-  ///   MessageBubbleCell(item: message)
-  /// }
-  /// ```
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
-    self.init(
+  /// Adds a prepend loader (loading indicator at top for loading older items).
+  public consuming func prependLoader<V: View>(
+    _ loader: Loader<V>?
+  ) -> TiledView<Item, Cell, V, AppendLoadingView, TypingIndicatorContent, HeaderContentView, StateValue> {
+    .init(
       dataSource: dataSource,
-      scrollPosition: scrollPosition,
-      makeInitialState: { _ in () },
-      cellBuilder: cellBuilder
+      makeInitialState: makeInitialState,
+      cellBuilder: cellBuilder,
+      onTiledScrollGeometryChange: onTiledScrollGeometryChange,
+      onTapBackground: onTapBackground,
+      onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+      additionalContentInset: additionalContentInset,
+      revealConfiguration: revealConfiguration,
+      prependLoader: loader,
+      appendLoader: appendLoader,
+      typingIndicator: typingIndicator,
+      headerContent: headerContent,
+      scrollPosition: $scrollPosition
     )
   }
 }
 
-extension TiledView where StateValue == Void, TypingIndicatorContent == Never {
+extension TiledView where AppendLoadingView == Never {
 
-  /// Creates a TiledView with prepend and/or append loaders.
-  ///
-  /// This is a convenience initializer for cells that don't use per-cell state.
-  /// The `makeInitialState` closure defaults to `{ _ in () }`.
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    prependLoader: Loader<PrependLoadingView>?,
-    appendLoader: Loader<AppendLoadingView>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
-    self.init(
+  /// Adds an append loader (loading indicator at bottom for loading newer items).
+  public consuming func appendLoader<V: View>(
+    _ loader: Loader<V>?
+  ) -> TiledView<Item, Cell, PrependLoadingView, V, TypingIndicatorContent, HeaderContentView, StateValue> {
+    .init(
       dataSource: dataSource,
-      scrollPosition: scrollPosition,
-      makeInitialState: { _ in () },
+      makeInitialState: makeInitialState,
+      cellBuilder: cellBuilder,
+      onTiledScrollGeometryChange: onTiledScrollGeometryChange,
+      onTapBackground: onTapBackground,
+      onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+      additionalContentInset: additionalContentInset,
+      revealConfiguration: revealConfiguration,
+      prependLoader: prependLoader,
+      appendLoader: loader,
+      typingIndicator: typingIndicator,
+      headerContent: headerContent,
+      scrollPosition: $scrollPosition
+    )
+  }
+}
+
+extension TiledView where TypingIndicatorContent == Never {
+
+  /// Adds a typing indicator (shown at bottom when other users are typing).
+  public consuming func typingIndicator<V: View>(
+    _ indicator: TypingIndicator<V>?
+  ) -> TiledView<Item, Cell, PrependLoadingView, AppendLoadingView, V, HeaderContentView, StateValue> {
+    .init(
+      dataSource: dataSource,
+      makeInitialState: makeInitialState,
+      cellBuilder: cellBuilder,
+      onTiledScrollGeometryChange: onTiledScrollGeometryChange,
+      onTapBackground: onTapBackground,
+      onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+      additionalContentInset: additionalContentInset,
+      revealConfiguration: revealConfiguration,
       prependLoader: prependLoader,
       appendLoader: appendLoader,
-      cellBuilder: cellBuilder
+      typingIndicator: indicator,
+      headerContent: headerContent,
+      scrollPosition: $scrollPosition
     )
   }
 }
 
-extension TiledView where StateValue == Void {
+extension TiledView where HeaderContentView == Never {
 
-  /// Creates a TiledView with prepend/append loaders and a typing indicator.
-  ///
-  /// This is a convenience initializer for cells that don't use per-cell state.
-  /// The `makeInitialState` closure defaults to `{ _ in () }`.
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    prependLoader: Loader<PrependLoadingView>?,
-    appendLoader: Loader<AppendLoadingView>?,
-    typingIndicator: TypingIndicator<TypingIndicatorContent>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
-    self.init(
+  /// Adds a static header content between the prepend loader and the first message.
+  public consuming func headerContent<V: View>(
+    _ header: HeaderContent<V>?
+  ) -> TiledView<Item, Cell, PrependLoadingView, AppendLoadingView, TypingIndicatorContent, V, StateValue> {
+    .init(
       dataSource: dataSource,
-      scrollPosition: scrollPosition,
-      makeInitialState: { _ in () },
+      makeInitialState: makeInitialState,
+      cellBuilder: cellBuilder,
+      onTiledScrollGeometryChange: onTiledScrollGeometryChange,
+      onTapBackground: onTapBackground,
+      onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+      additionalContentInset: additionalContentInset,
+      revealConfiguration: revealConfiguration,
       prependLoader: prependLoader,
       appendLoader: appendLoader,
       typingIndicator: typingIndicator,
-      cellBuilder: cellBuilder
-    )
-  }
-}
-
-extension TiledView where StateValue == Void, AppendLoadingView == Never, TypingIndicatorContent == Never {
-
-  /// Creates a TiledView with prepend loader only.
-  ///
-  /// This is a convenience initializer for cells that don't use per-cell state.
-  /// The `makeInitialState` closure defaults to `{ _ in () }`.
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    prependLoader: Loader<PrependLoadingView>?,
-    appendLoader: Loader<Never>? = .disabled,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
-    self.init(
-      dataSource: dataSource,
-      scrollPosition: scrollPosition,
-      makeInitialState: { _ in () },
-      prependLoader: prependLoader,
-      appendLoader: appendLoader,
-      cellBuilder: cellBuilder
-    )
-  }
-}
-
-extension TiledView where StateValue == Void, AppendLoadingView == Never {
-
-  /// Creates a TiledView with prepend loader and typing indicator.
-  ///
-  /// This is a convenience initializer for cells that don't use per-cell state.
-  /// The `makeInitialState` closure defaults to `{ _ in () }`.
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    prependLoader: Loader<PrependLoadingView>?,
-    appendLoader: Loader<Never>? = .disabled,
-    typingIndicator: TypingIndicator<TypingIndicatorContent>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
-    self.init(
-      dataSource: dataSource,
-      scrollPosition: scrollPosition,
-      makeInitialState: { _ in () },
-      prependLoader: prependLoader,
-      appendLoader: appendLoader,
-      typingIndicator: typingIndicator,
-      cellBuilder: cellBuilder
-    )
-  }
-}
-
-extension TiledView where StateValue == Void, PrependLoadingView == Never, TypingIndicatorContent == Never {
-
-  /// Creates a TiledView with append loader only.
-  ///
-  /// This is a convenience initializer for cells that don't use per-cell state.
-  /// The `makeInitialState` closure defaults to `{ _ in () }`.
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    prependLoader: Loader<Never>? = .disabled,
-    appendLoader: Loader<AppendLoadingView>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
-    self.init(
-      dataSource: dataSource,
-      scrollPosition: scrollPosition,
-      makeInitialState: { _ in () },
-      prependLoader: prependLoader,
-      appendLoader: appendLoader,
-      cellBuilder: cellBuilder
-    )
-  }
-}
-
-extension TiledView where StateValue == Void, PrependLoadingView == Never {
-
-  /// Creates a TiledView with append loader and typing indicator.
-  ///
-  /// This is a convenience initializer for cells that don't use per-cell state.
-  /// The `makeInitialState` closure defaults to `{ _ in () }`.
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    prependLoader: Loader<Never>? = .disabled,
-    appendLoader: Loader<AppendLoadingView>?,
-    typingIndicator: TypingIndicator<TypingIndicatorContent>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
-    self.init(
-      dataSource: dataSource,
-      scrollPosition: scrollPosition,
-      makeInitialState: { _ in () },
-      prependLoader: prependLoader,
-      appendLoader: appendLoader,
-      typingIndicator: typingIndicator,
-      cellBuilder: cellBuilder
-    )
-  }
-}
-
-extension TiledView where StateValue == Void, PrependLoadingView == Never, AppendLoadingView == Never {
-
-  /// Creates a TiledView with typing indicator only.
-  ///
-  /// This is a convenience initializer for cells that don't use per-cell state.
-  /// The `makeInitialState` closure defaults to `{ _ in () }`.
-  public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
-    scrollPosition: Binding<TiledScrollPosition>,
-    typingIndicator: TypingIndicator<TypingIndicatorContent>?,
-    cellBuilder: @escaping (Item) -> CellContent
-  ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
-    self.init(
-      dataSource: dataSource,
-      scrollPosition: scrollPosition,
-      makeInitialState: { _ in () },
-      typingIndicator: typingIndicator,
-      cellBuilder: cellBuilder
+      headerContent: header,
+      scrollPosition: $scrollPosition
     )
   }
 }
@@ -2089,6 +1756,7 @@ extension TiledView {
         prependLoader: prependLoader,
         appendLoader: appendLoader,
         typingIndicator: typingIndicator,
+        headerContent: headerContent,
         cellBuilder: cellBuilder
       )
       .ignoresSafeArea()

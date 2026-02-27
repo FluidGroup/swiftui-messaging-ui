@@ -248,36 +248,36 @@ struct BookTiledViewLoadingIndicator: View {
     TiledView(
       dataSource: dataSource,
       scrollPosition: $scrollPosition,
-      makeInitialState: { _ in ChatBubbleCellState() },
-      prependLoader: .loader(
-        perform: { /* triggered by button */ },
-        isProcessing: isPrependLoading
-      ) {
-        HStack {
-          ProgressView()
-          Text("Loading older messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-      },
-      appendLoader: .loader(
-        perform: { /* triggered by button */ },
-        isProcessing: isAppendLoading
-      ) {
-        HStack {
-          ProgressView()
-          Text("Loading newer messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-      }
+      makeInitialState: { _ in ChatBubbleCellState() }
     ) { message in
       ChatBubbleCell(item: message)
     }
+    .prependLoader(.loader(
+      perform: { /* triggered by button */ },
+      isProcessing: isPrependLoading
+    ) {
+      HStack {
+        ProgressView()
+        Text("Loading older messages...")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity)
+      .padding()
+    })
+    .appendLoader(.loader(
+      perform: { /* triggered by button */ },
+      isProcessing: isAppendLoading
+    ) {
+      HStack {
+        ProgressView()
+        Text("Loading newer messages...")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity)
+      .padding()
+    })
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {
         Divider()
@@ -404,35 +404,35 @@ struct BookTiledViewTypingIndicator: View {
     TiledView(
       dataSource: dataSource,
       scrollPosition: $scrollPosition,
-      makeInitialState: { _ in ChatBubbleCellState() },
-      appendLoader: .loader(
-        perform: { /* triggered by button */ },
-        isProcessing: isAppendLoading
-      ) {
-        HStack {
-          ProgressView()
-          Text("Loading newer messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-      },
-      typingIndicator: .indicator(isVisible: isTyping) {
-        HStack(spacing: 8) {
-          TypingDotsView()
-          Text("Someone is typing...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color(.systemGray6))
-      }
+      makeInitialState: { _ in ChatBubbleCellState() }
     ) { message in
       ChatBubbleCell(item: message)
     }
+    .appendLoader(.loader(
+      perform: { /* triggered by button */ },
+      isProcessing: isAppendLoading
+    ) {
+      HStack {
+        ProgressView()
+        Text("Loading newer messages...")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity)
+      .padding()
+    })
+    .typingIndicator(.indicator(isVisible: isTyping) {
+      HStack(spacing: 8) {
+        TypingDotsView()
+        Text("Someone is typing...")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(.horizontal, 16)
+      .padding(.vertical, 12)
+      .background(Color(.systemGray6))
+    })
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {
         Divider()
@@ -552,6 +552,149 @@ struct TypingDotsView: View {
   }
 }
 
+// MARK: - Expandable Header View
+
+struct ExpandableConversationHeader: View {
+
+  @State private var isExpanded = false
+  @Environment(\.updateSelfSizing) private var updateSelfSizing
+
+  var body: some View {
+    VStack(spacing: 8) {
+      Image(systemName: "lock.shield")
+        .font(.title)
+        .foregroundStyle(.secondary)
+      Text("Start of conversation")
+        .font(.subheadline)
+        .fontWeight(.semibold)
+      Text("Messages in this chat are not end-to-end encrypted.")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+
+      if isExpanded {
+        VStack(spacing: 6) {
+          Text("Channel created on January 1, 2025")
+          Text("Members: Alice, Bob, Charlie, Dave")
+          Text("This is a private channel visible only to invited members.")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .transition(.opacity)
+      }
+
+      Button {
+        isExpanded.toggle()
+        updateSelfSizing()
+      } label: {
+        HStack(spacing: 4) {
+          Text(isExpanded ? "Show Less" : "Show More")
+          Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+        }
+        .font(.caption)
+      }
+    }
+    .frame(maxWidth: .infinity)
+    .padding(.vertical, 24)
+    .padding(.horizontal, 40)
+  }
+}
+
+// MARK: - Header Content Demo
+
+struct BookTiledViewHeaderContent: View {
+
+  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var nextPrependId = -1
+  @State private var nextAppendId = 0
+  @State private var scrollPosition = TiledScrollPosition()
+  @State private var isPrependLoading = false
+
+  var body: some View {
+    TiledView(
+      dataSource: dataSource,
+      scrollPosition: $scrollPosition,
+      makeInitialState: { _ in ChatBubbleCellState() }
+    ) { message in
+      ChatBubbleCell(item: message)
+    }
+    .prependLoader(.loader(
+      perform: { /* triggered by button */ },
+      isProcessing: isPrependLoading
+    ) {
+      HStack {
+        ProgressView()
+        Text("Loading older messages...")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity)
+      .padding()
+    })
+    .headerContent(.header {
+      ExpandableConversationHeader()
+    })
+    .toolbar {
+      ToolbarItemGroup(placement: .bottomBar) {
+        // Toggle Prepend Loading
+        Button {
+          isPrependLoading.toggle()
+          if isPrependLoading {
+            Task {
+              try? await Task.sleep(for: .seconds(2))
+              let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+              dataSource.prepend(messages)
+              nextPrependId -= 5
+              isPrependLoading = false
+            }
+          }
+        } label: {
+          Label("Load Older", systemImage: isPrependLoading ? "hourglass" : "arrow.up.doc")
+        }
+
+        Spacer()
+
+        // Scroll
+        Button {
+          scrollPosition.scrollTo(edge: .top)
+        } label: {
+          Image(systemName: "arrow.up.to.line")
+        }
+
+        Button {
+          scrollPosition.scrollTo(edge: .bottom)
+        } label: {
+          Image(systemName: "arrow.down.to.line")
+        }
+
+        Spacer()
+
+        // Append
+        Button {
+          let messages = generateSampleMessages(count: 5, startId: nextAppendId)
+          dataSource.append(messages)
+          nextAppendId += 5
+        } label: {
+          Image(systemName: "arrow.down.doc")
+        }
+
+        // Reset
+        Button {
+          nextPrependId = -1
+          nextAppendId = 5
+          isPrependLoading = false
+          let newItems = generateSampleMessages(count: 5, startId: 0)
+          dataSource.replace(with: newItems)
+        } label: {
+          Image(systemName: "arrow.counterclockwise")
+        }
+      }
+    }
+    .navigationTitle("Header Content")
+  }
+}
+
 #Preview("Typing Dots") {
   TypingDotsView()
     .padding()
@@ -569,5 +712,11 @@ struct TypingDotsView: View {
 #Preview("Typing Indicator") {
   NavigationStack {
     BookTiledViewTypingIndicator()
+  }
+}
+
+#Preview("Header Content") {
+  NavigationStack {
+    BookTiledViewHeaderContent()
   }
 }

@@ -25,6 +25,9 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// Size of the header supplementary view (loading indicator at top)
   public var headerSize: CGSize = .zero
 
+  /// Size of the content header supplementary view (between prepend loader and items)
+  public var headerContentSize: CGSize = .zero
+
   /// Size of the footer supplementary view (loading indicator at bottom)
   public var footerSize: CGSize = .zero
 
@@ -91,10 +94,20 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     // Add header supplementary view if visible
     if headerSize.height > 0 {
       if let headerAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledLoadingIndicatorView.headerKind,
+        ofKind: TiledSupplementaryView.headerKind,
         at: IndexPath(item: 0, section: 0)
       ), headerAttrs.frame.intersects(rect) {
         result.append(headerAttrs)
+      }
+    }
+
+    // Add content header supplementary view if visible
+    if headerContentSize.height > 0 {
+      if let contentHeaderAttrs = layoutAttributesForSupplementaryView(
+        ofKind: TiledSupplementaryView.contentHeaderKind,
+        at: IndexPath(item: 0, section: 0)
+      ), contentHeaderAttrs.frame.intersects(rect) {
+        result.append(contentHeaderAttrs)
       }
     }
 
@@ -127,7 +140,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     // Add typing indicator supplementary view if visible
     if typingIndicatorSize.height > 0 {
       if let typingAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledLoadingIndicatorView.typingIndicatorKind,
+        ofKind: TiledSupplementaryView.typingIndicatorKind,
         at: IndexPath(item: 0, section: 0)
       ), typingAttrs.frame.intersects(rect) {
         result.append(typingAttrs)
@@ -137,7 +150,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     // Add footer supplementary view if visible
     if footerSize.height > 0 {
       if let footerAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledLoadingIndicatorView.footerKind,
+        ofKind: TiledSupplementaryView.footerKind,
         at: IndexPath(item: 0, section: 0)
       ), footerAttrs.frame.intersects(rect) {
         result.append(footerAttrs)
@@ -154,23 +167,39 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     let boundsWidth = collectionView?.bounds.width ?? 0
 
     switch elementKind {
-    case TiledLoadingIndicatorView.headerKind:
+    case TiledSupplementaryView.headerKind:
       guard headerSize.height > 0 else { return nil }
       let attrs = UICollectionViewLayoutAttributes(
         forSupplementaryViewOfKind: elementKind,
         with: indexPath
       )
-      // Position header above first item (or at anchorY if empty)
+      // Position header above content header and first item (or at anchorY if empty)
       let topY = itemYPositions.first ?? anchorY
       attrs.frame = CGRect(
         x: 0,
-        y: topY - headerSize.height,
+        y: topY - headerContentSize.height - headerSize.height,
         width: boundsWidth,
         height: headerSize.height
       )
       return attrs
 
-    case TiledLoadingIndicatorView.typingIndicatorKind:
+    case TiledSupplementaryView.contentHeaderKind:
+      guard headerContentSize.height > 0 else { return nil }
+      let attrs = UICollectionViewLayoutAttributes(
+        forSupplementaryViewOfKind: elementKind,
+        with: indexPath
+      )
+      // Position content header above first item (or at anchorY if empty)
+      let topY = itemYPositions.first ?? anchorY
+      attrs.frame = CGRect(
+        x: 0,
+        y: topY - headerContentSize.height,
+        width: boundsWidth,
+        height: headerContentSize.height
+      )
+      return attrs
+
+    case TiledSupplementaryView.typingIndicatorKind:
       guard typingIndicatorSize.height > 0 else { return nil }
       let attrs = UICollectionViewLayoutAttributes(
         forSupplementaryViewOfKind: elementKind,
@@ -191,7 +220,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
       return attrs
 
-    case TiledLoadingIndicatorView.footerKind:
+    case TiledSupplementaryView.footerKind:
       guard footerSize.height > 0 else { return nil }
       let attrs = UICollectionViewLayoutAttributes(
         forSupplementaryViewOfKind: elementKind,
@@ -272,11 +301,38 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       withOriginalAttributes: originalAttributes
     )
 
-    let index = preferredAttributes.indexPath.item
     let newHeight = preferredAttributes.frame.size.height
 
-    if index < itemHeights.count {
-      updateItemHeight(at: index, newHeight: newHeight)
+    switch preferredAttributes.representedElementCategory {
+    case .cell:
+      let index = preferredAttributes.indexPath.item
+      if index < itemHeights.count {
+        updateItemHeight(at: index, newHeight: newHeight)
+      }
+
+    case .supplementaryView:
+      let newSize = CGSize(
+        width: preferredAttributes.frame.size.width,
+        height: newHeight
+      )
+      switch preferredAttributes.representedElementKind {
+      case TiledSupplementaryView.contentHeaderKind:
+        headerContentSize = newSize
+      case TiledSupplementaryView.headerKind:
+        headerSize = newSize
+      case TiledSupplementaryView.footerKind:
+        footerSize = newSize
+      case TiledSupplementaryView.typingIndicatorKind:
+        typingIndicatorSize = newSize
+      default:
+        break
+      }
+
+    case .decorationView:
+      break
+
+    @unknown default:
+      break
     }
 
     return context
@@ -499,10 +555,13 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   private func calculateContentInset() -> UIEdgeInsets {
     guard let bounds = contentBounds() else {
       // Empty list: treat anchorY as bottom position to appear "at bottom"
-      // Account for header/footer/typingIndicator if present
+      // Account for header/footer/typingIndicator/contentHeader if present
       var topY = anchorY
       var bottomY = anchorY
 
+      if headerContentSize.height > 0 {
+        topY -= headerContentSize.height
+      }
       if headerSize.height > 0 {
         topY -= headerSize.height
       }
@@ -523,10 +582,13 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
     }
 
-    // Adjust bounds to include header/footer/typingIndicator
+    // Adjust bounds to include header/footer/typingIndicator/contentHeader
     var topY = bounds.top
     var bottomY = bounds.bottom
 
+    if headerContentSize.height > 0 {
+      topY -= headerContentSize.height
+    }
     if headerSize.height > 0 {
       topY -= headerSize.height
     }

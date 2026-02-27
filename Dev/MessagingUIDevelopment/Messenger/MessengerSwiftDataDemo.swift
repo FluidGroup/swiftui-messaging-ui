@@ -438,47 +438,47 @@ struct MessengerSwiftDataDemo: View {
     ZStack(alignment: .bottomTrailing) {
       TiledView(
         dataSource: store.dataSource,
-        scrollPosition: $scrollPosition,
-        prependLoader: .loader(perform: {
-          await store.loadOlder()
-        }) {
-          HStack(spacing: 8) {
-            ProgressView()
-            Text("Loading older messages...")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 12)
-        },
-        appendLoader: .loader(perform: {
-          await store.loadNewer()
-        }) {
-          HStack(spacing: 8) {
-            ProgressView()
-            Text("Loading newer messages...")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          .frame(maxWidth: .infinity)
-          .padding(.vertical, 12)
-        },
-        typingIndicator: .indicator(isVisible: isTyping) {
-          HStack(spacing: 8) {
-            TypingDotsView()
-            Text("Someone is typing...")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .padding(.horizontal, 16)
-          .padding(.vertical, 12)
-        }
+        scrollPosition: $scrollPosition
       ) { message in
         ChatMessageCell(item: message) {
           store.deleteMessage(id: message.id)
         }
       }
+      .prependLoader(.loader(perform: {
+        await store.loadOlder()
+      }) {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Loading older messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+      })
+      .appendLoader(.loader(perform: {
+        await store.loadNewer()
+      }) {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Loading newer messages...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+      })
+      .typingIndicator(.indicator(isVisible: isTyping) {
+        HStack(spacing: 8) {
+          TypingDotsView()
+          Text("Someone is typing...")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+      })
       .revealConfiguration(.default)
       .onDragIntoBottomSafeArea {
         isInputFocused = false

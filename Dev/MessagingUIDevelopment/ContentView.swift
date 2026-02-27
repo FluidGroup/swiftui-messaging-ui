@@ -12,6 +12,7 @@ enum DemoDestination: Hashable {
   case tiledView
   case tiledViewLoadingIndicator
   case tiledViewTypingIndicator
+  case tiledViewHeaderContent
   case lazyVStack
   case list
   case messenger
@@ -80,6 +81,19 @@ struct ContentView: View {
               }
             } icon: {
               Image(systemName: "ellipsis.bubble")
+            }
+          }
+
+          NavigationLink(value: DemoDestination.tiledViewHeaderContent) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Header Content")
+                Text("Static header above messages")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "text.badge.star")
             }
           }
 
@@ -174,6 +188,9 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
         case .tiledViewTypingIndicator:
           BookTiledViewTypingIndicator()
+            .navigationBarTitleDisplayMode(.inline)
+        case .tiledViewHeaderContent:
+          BookTiledViewHeaderContent()
             .navigationBarTitleDisplayMode(.inline)
         case .lazyVStack:
           LazyVStackDemo()
