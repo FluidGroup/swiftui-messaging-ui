@@ -37,7 +37,8 @@ This library takes a different approach: a **virtual content layout** with a 100
 - **UICollectionView-backed** - Native recycling with SwiftUI cell rendering
 - **Self-Sizing Cells** - Automatic height calculation for variable content
 - **Keyboard & Safe Area Handling** - Automatic content inset adjustment for keyboard and safe areas
-- **Typing Indicator** 
+- **Typing Indicator**
+- **Header Content** - Display static content (e.g., "Start of conversation") above messages
 
 ## Requirements
 
@@ -115,26 +116,26 @@ struct ChatView: View {
 
 ### Loading Older Messages
 
-Use `prependLoader` to handle loading older messages with a built-in loading indicator:
+Use the `.prependLoader()` modifier to handle loading older messages with a built-in loading indicator:
 
 ```swift
 TiledView(
   dataSource: dataSource,
-  scrollPosition: $scrollPosition,
-  prependLoader: .loader(perform: {
-    // Called when user scrolls near the top
-    let olderMessages = await fetchOlderMessages()
-    dataSource.prepend(olderMessages)
-  }) {
-    // Loading indicator shown while loading
-    ProgressView()
-  }
+  scrollPosition: $scrollPosition
 ) { message in
   MessageBubbleCell(item: message)
 }
+.prependLoader(.loader(perform: {
+  // Called when user scrolls near the top
+  let olderMessages = await fetchOlderMessages()
+  dataSource.prepend(olderMessages)
+}) {
+  // Loading indicator shown while loading
+  ProgressView()
+})
 ```
 
-Similarly, use `appendLoader` for loading newer messages at the bottom.
+Similarly, use the `.appendLoader()` modifier for loading newer messages at the bottom.
 
 #### Sync Mode with External State
 
@@ -145,16 +146,16 @@ If you need to control the loading state externally:
 
 TiledView(
   dataSource: dataSource,
-  scrollPosition: $scrollPosition,
-  prependLoader: .loader(
-    perform: { loadOlderMessages() },
-    isProcessing: isLoading
-  ) {
-    ProgressView()
-  }
+  scrollPosition: $scrollPosition
 ) { message in
   MessageBubbleCell(item: message)
 }
+.prependLoader(.loader(
+  perform: { loadOlderMessages() },
+  isProcessing: isLoading
+) {
+  ProgressView()
+})
 ```
 
 ### Programmatic Scrolling
@@ -221,29 +222,75 @@ TiledView(...)
 
 ### Typing Indicator
 
-Show when other users are typing with the `typingIndicator` parameter:
+Show when other users are typing with the `.typingIndicator()` modifier:
 
 ```swift
 TiledView(
   dataSource: dataSource,
-  scrollPosition: $scrollPosition,
-  typingIndicator: .indicator(isVisible: store.isTyping) {
-    HStack(spacing: 8) {
-      TypingDotsView()
-      Text("Someone is typing...")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(.horizontal, 16)
-    .padding(.vertical, 12)
-  }
+  scrollPosition: $scrollPosition
 ) { message in
   MessageBubbleCell(item: message)
 }
+.typingIndicator(.indicator(isVisible: store.isTyping) {
+  HStack(spacing: 8) {
+    TypingDotsView()
+    Text("Someone is typing...")
+      .font(.caption)
+      .foregroundStyle(.secondary)
+  }
+  .frame(maxWidth: .infinity, alignment: .leading)
+  .padding(.horizontal, 16)
+  .padding(.vertical, 12)
+})
 ```
 
 The typing indicator appears below the last message and automatically scrolls into view when it appears (if the user is near the bottom of the list).
+
+### Header Content
+
+Display static content above messages, such as a "Start of conversation" banner:
+
+```swift
+TiledView(
+  dataSource: dataSource,
+  scrollPosition: $scrollPosition
+) { message in
+  MessageBubbleCell(item: message)
+}
+.headerContent(.header {
+  Text("Start of conversation")
+    .font(.footnote)
+    .foregroundStyle(.secondary)
+    .padding()
+})
+```
+
+For dynamic content that changes height, use the `updateSelfSizing` environment value to notify the layout:
+
+```swift
+struct ExpandableHeader: View {
+  @State private var isExpanded = false
+  @Environment(\.updateSelfSizing) private var updateSelfSizing
+
+  var body: some View {
+    VStack(spacing: 8) {
+      Text("Start of conversation")
+
+      if isExpanded {
+        Text("Channel created on January 1, 2025")
+          .font(.caption)
+      }
+
+      Button(isExpanded ? "Show Less" : "Show More") {
+        isExpanded.toggle()
+        updateSelfSizing()
+      }
+      .font(.caption)
+    }
+    .padding()
+  }
+}
+```
 
 ### Observing Scroll Position
 
