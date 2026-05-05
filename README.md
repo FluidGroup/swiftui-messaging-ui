@@ -265,12 +265,11 @@ TiledView(
 })
 ```
 
-For dynamic content that changes height, use the `updateSelfSizing` environment value to notify the layout:
+Dynamic content that changes height is remeasured automatically when SwiftUI invalidates its intrinsic content size:
 
 ```swift
 struct ExpandableHeader: View {
   @State private var isExpanded = false
-  @Environment(\.updateSelfSizing) private var updateSelfSizing
 
   var body: some View {
     VStack(spacing: 8) {
@@ -283,7 +282,6 @@ struct ExpandableHeader: View {
 
       Button(isExpanded ? "Show Less" : "Show More") {
         isExpanded.toggle()
-        updateSelfSizing()
       }
       .font(.caption)
     }

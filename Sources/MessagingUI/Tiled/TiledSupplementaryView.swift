@@ -7,6 +7,7 @@
 
 import SwiftUI
 import UIKit
+import ObjectiveC
 
 extension EnvironmentValues {
 
@@ -14,8 +15,8 @@ extension EnvironmentValues {
   ///
   /// Call this from within supplementary view content (header, footer, typing indicator, etc.)
   /// when a `@State` change causes the view's height to change.
-  /// Without calling this, the collection view layout will not be notified of the size change
-  /// and the view may clip or leave empty space.
+  /// This is normally handled automatically by `TiledSupplementaryView`, but remains available
+  /// as a fallback for custom views that do not invalidate their intrinsic content size.
   ///
   /// ## Why this is needed (workaround)
   ///
@@ -25,12 +26,13 @@ extension EnvironmentValues {
   /// explicit layout invalidation. A subview's intrinsic content size change alone does not trigger
   /// the collection view to re-query the preferred size.
   ///
-  /// Calling `updateSelfSizing()` bridges this gap by invoking `invalidateIntrinsicContentSize()` on
-  /// the `UICollectionReusableView` itself, which tells UICollectionView to re-run the self-sizing pipeline.
+  /// `TiledSupplementaryView` bridges this gap automatically by observing intrinsic size invalidations
+  /// from the hosted SwiftUI view and invalidating the supplementary view itself. Calling
+  /// `updateSelfSizing()` manually runs the same final invalidation step.
   ///
   /// ## Pipeline
   ///
-  /// 1. Calling `updateSelfSizing()` invokes `invalidateIntrinsicContentSize()` on the hosting view.
+  /// 1. Hosted SwiftUI content invalidates its intrinsic content size.
   /// 2. UIKit triggers `preferredLayoutAttributesFitting(_:)` to compute the new size.
   /// 3. The layout's `invalidationContext(forPreferredLayoutAttributes:withOriginalAttributes:)` updates
   ///    the corresponding size property (e.g., `headerContentSize`) and invalidates the layout.
@@ -40,13 +42,11 @@ extension EnvironmentValues {
   /// ```swift
   /// struct ExpandableHeader: View {
   ///   @State private var isExpanded = false
-  ///   @Environment(\.updateSelfSizing) private var updateSelfSizing
   ///
   ///   var body: some View {
   ///     VStack {
   ///       Button(isExpanded ? "Show Less" : "Show More") {
   ///         isExpanded.toggle()
-  ///         updateSelfSizing()
   ///       }
   ///       if isExpanded {
   ///         Text("Additional content here")
@@ -71,6 +71,8 @@ final class TiledSupplementaryView: UICollectionReusableView {
   static let reuseIdentifier = "TiledSupplementaryView"
 
   private var hostingController: UIHostingController<AnyView>?
+  private var isSchedulingIntrinsicContentSizeInvalidationUpdate = false
+  private var isUpdatingForIntrinsicContentSizeInvalidation = false
   
   /// Override safeAreaInsets to return zero. This prevents UIHostingConfiguration from being affected by safe area changes when contentInsetAdjustmentBehavior = .never is used on the collection view.
   override var safeAreaInsets: UIEdgeInsets {
@@ -91,6 +93,7 @@ final class TiledSupplementaryView: UICollectionReusableView {
     hosting.sizingOptions = .intrinsicContentSize
     hosting.view.backgroundColor = .clear
     hosting.safeAreaRegions = []
+    TiledSupplementaryIntrinsicContentSizeInvalidationObserver.install(on: hosting.view)
 
     addSubview(hosting.view)
     NSLayoutConstraint.activate([
@@ -101,6 +104,30 @@ final class TiledSupplementaryView: UICollectionReusableView {
     ])
 
     hostingController = hosting
+  }
+
+  fileprivate func didInvalidateIntrinsicContentSize(in descendant: UIView) {
+    guard let hostedView = hostingController?.view else { return }
+    guard descendant === hostedView || descendant.isDescendant(of: hostedView) else { return }
+    guard isUpdatingForIntrinsicContentSizeInvalidation == false else { return }
+    guard isSchedulingIntrinsicContentSizeInvalidationUpdate == false else { return }
+
+    scheduleSelfSizingUpdateForIntrinsicContentSizeInvalidation()
+  }
+
+  private func scheduleSelfSizingUpdateForIntrinsicContentSizeInvalidation() {
+    isSchedulingIntrinsicContentSizeInvalidationUpdate = true
+
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+
+      self.isSchedulingIntrinsicContentSizeInvalidationUpdate = false
+      guard self.hostingController?.view.superview === self else { return }
+
+      self.isUpdatingForIntrinsicContentSizeInvalidation = true
+      self.invalidateIntrinsicContentSize()
+      self.isUpdatingForIntrinsicContentSizeInvalidation = false
+    }
   }
 
   override func prepareForReuse() {
@@ -132,5 +159,86 @@ final class TiledSupplementaryView: UICollectionReusableView {
 
     attributes.frame.size.height = size.height
     return attributes
+  }
+}
+
+@MainActor
+private enum TiledSupplementaryIntrinsicContentSizeInvalidationObserver {
+
+  private static var installedClasses: Set<ObjectIdentifier> = []
+
+  static func install(on view: UIView) {
+    let viewClass: AnyClass = type(of: view)
+    let classID = ObjectIdentifier(viewClass)
+
+    guard installedClasses.contains(classID) == false else { return }
+
+    let selector = #selector(UIView.invalidateIntrinsicContentSize)
+    let originalImplementation = class_getMethodImplementation(viewClass, selector)
+    typealias OriginalImplementation = @convention(c) (UIView, Selector) -> Void
+    let original = unsafeBitCast(originalImplementation, to: OriginalImplementation.self)
+
+    let block: @convention(block) (UIView) -> Void = { view in
+      original(view, selector)
+      view.tiled_notifySupplementaryIntrinsicContentSizeInvalidationIfNeeded()
+    }
+
+    let implementation = imp_implementationWithBlock(block)
+
+    let added = class_addMethod(
+      viewClass,
+      selector,
+      implementation,
+      "v@:"
+    )
+
+    guard added else {
+      guard classOwnsMethod(viewClass, selector),
+            let method = class_getInstanceMethod(viewClass, selector) else {
+        imp_removeBlock(implementation)
+        assertionFailure("Failed to install TiledSupplementaryView intrinsic content size invalidation observer.")
+        return
+      }
+
+      method_setImplementation(method, implementation)
+      installedClasses.insert(classID)
+      return
+    }
+
+    installedClasses.insert(classID)
+  }
+
+  private static func classOwnsMethod(_ viewClass: AnyClass, _ selector: Selector) -> Bool {
+    var methodCount: UInt32 = 0
+    guard let methods = class_copyMethodList(viewClass, &methodCount) else {
+      return false
+    }
+    defer {
+      free(methods)
+    }
+
+    for index in 0..<Int(methodCount) {
+      if method_getName(methods[index]) == selector {
+        return true
+      }
+    }
+
+    return false
+  }
+}
+
+private extension UIView {
+
+  func tiled_notifySupplementaryIntrinsicContentSizeInvalidationIfNeeded() {
+    var currentView = superview
+
+    while let view = currentView {
+      if let supplementaryView = view as? TiledSupplementaryView {
+        supplementaryView.didInvalidateIntrinsicContentSize(in: self)
+        return
+      }
+
+      currentView = view.superview
+    }
   }
 }
