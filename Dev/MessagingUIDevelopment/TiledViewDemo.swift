@@ -557,7 +557,6 @@ struct TypingDotsView: View {
 struct ExpandableConversationHeader: View {
 
   @State private var isExpanded = false
-  @Environment(\.updateSelfSizing) private var updateSelfSizing
 
   var body: some View {
     VStack(spacing: 8) {
@@ -586,7 +585,6 @@ struct ExpandableConversationHeader: View {
 
       Button {
         isExpanded.toggle()
-        updateSelfSizing()
       } label: {
         HStack(spacing: 4) {
           Text(isExpanded ? "Show Less" : "Show More")
@@ -610,6 +608,13 @@ struct BookTiledViewHeaderContent: View {
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
   @State private var isPrependLoading = false
+  @State private var isHeaderVisible = true
+
+  private var conversationHeader: HeaderContent<ExpandableConversationHeader>? {
+    isHeaderVisible ? .header {
+      ExpandableConversationHeader()
+    } : nil
+  }
 
   var body: some View {
     TiledView(
@@ -632,11 +637,16 @@ struct BookTiledViewHeaderContent: View {
       .frame(maxWidth: .infinity)
       .padding()
     })
-    .headerContent(.header {
-      ExpandableConversationHeader()
-    })
+    .headerContent(conversationHeader)
     .toolbar {
       ToolbarItemGroup(placement: .bottomBar) {
+        // Toggle Header Content
+        Button {
+          isHeaderVisible.toggle()
+        } label: {
+          Image(systemName: isHeaderVisible ? "eye" : "eye.slash")
+        }
+
         // Toggle Prepend Loading
         Button {
           isPrependLoading.toggle()
@@ -684,6 +694,7 @@ struct BookTiledViewHeaderContent: View {
           nextPrependId = -1
           nextAppendId = 5
           isPrependLoading = false
+          isHeaderVisible = true
           let newItems = generateSampleMessages(count: 5, startId: 0)
           dataSource.replace(with: newItems)
         } label: {
