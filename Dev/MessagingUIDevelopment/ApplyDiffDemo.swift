@@ -219,3 +219,158 @@ struct BookApplyDiffDemo: View {
 #Preview("ApplyDiff Demo") {
   BookApplyDiffDemo()
 }
+
+// MARK: - Batch Update Repro Demo
+
+/// Stresses TiledView with multiple ListDataSource changes in one SwiftUI update.
+///
+/// This intentionally creates the shape that is likely to violate
+/// UICollectionView's batch update contract while the current TiledUIView
+/// applies each pending change one by one.
+struct BatchUpdateReproDemo: View {
+
+  @State private var dataSource = ListDataSource<ChatMessage>(items: generateSampleMessages(count: 24, startId: 0))
+  @State private var scrollPosition = TiledScrollPosition()
+  @State private var nextAppendId = 24
+  @State private var nextPrependId = -1
+  @State private var runCount = 0
+  @State private var isStressRunning = false
+
+  var body: some View {
+    VStack(spacing: 0) {
+      VStack(spacing: 12) {
+        Text("Batch Update Repro")
+          .font(.headline)
+
+        Text("Tap buttons below to enqueue multiple ListDataSource changes before TiledView receives the next SwiftUI update.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+
+        HStack {
+          Button("Append x2") {
+            appendBurst(changeCount: 2)
+          }
+          .buttonStyle(.bordered)
+
+          Button("Append x5") {
+            appendBurst(changeCount: 5)
+          }
+          .buttonStyle(.bordered)
+          .tint(.orange)
+
+          Button("Mixed") {
+            mixedBurst()
+          }
+          .buttonStyle(.bordered)
+          .tint(.purple)
+        }
+
+        HStack {
+          Button(isStressRunning ? "Running..." : "Stress 100") {
+            runStress()
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(isStressRunning)
+
+          Button("Reset") {
+            reset()
+          }
+          .buttonStyle(.bordered)
+          .tint(.red)
+        }
+
+        HStack {
+          Text("Items: \(dataSource.items.count)")
+          Spacer()
+          Text("ChangeCounter: \(dataSource.changeCounter)")
+          Spacer()
+          Text("Runs: \(runCount)")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+      .padding()
+      .background(Color(.systemBackground))
+
+      Divider()
+
+      TiledView(
+        dataSource: dataSource,
+        scrollPosition: $scrollPosition,
+        makeInitialState: { _ in ChatBubbleCellState() }
+      ) { message in
+        ChatBubbleCell(item: message)
+      }
+    }
+  }
+
+  private func appendBurst(changeCount: Int) {
+    var nextDataSource = dataSource
+
+    for _ in 0..<changeCount {
+      let message = ChatMessage(
+        id: nextAppendId,
+        text: "Same-render append #\(nextAppendId)"
+      )
+      nextAppendId += 1
+      nextDataSource.append([message])
+    }
+
+    dataSource = nextDataSource
+    runCount += 1
+  }
+
+  private func mixedBurst() {
+    var nextDataSource = dataSource
+
+    let prependedMessage = ChatMessage(
+      id: nextPrependId,
+      text: "Same-render prepend #\(nextPrependId)"
+    )
+    nextPrependId -= 1
+    nextDataSource.prepend([prependedMessage])
+
+    let appendedMessage = ChatMessage(
+      id: nextAppendId,
+      text: "Same-render append #\(nextAppendId)"
+    )
+    nextAppendId += 1
+    nextDataSource.append([appendedMessage])
+
+    if let removableID = Array(nextDataSource.items).dropFirst().first?.id {
+      nextDataSource.remove(id: removableID)
+    }
+
+    dataSource = nextDataSource
+    runCount += 1
+  }
+
+  private func runStress() {
+    guard !isStressRunning else { return }
+
+    isStressRunning = true
+
+    Task { @MainActor in
+      for _ in 0..<100 {
+        appendBurst(changeCount: 2)
+        try? await Task.sleep(for: .milliseconds(20))
+      }
+
+      isStressRunning = false
+    }
+  }
+
+  private func reset() {
+    dataSource = ListDataSource<ChatMessage>(items: generateSampleMessages(count: 24, startId: 0))
+    scrollPosition = TiledScrollPosition()
+    nextAppendId = 24
+    nextPrependId = -1
+    runCount = 0
+    isStressRunning = false
+  }
+}
+
+#Preview("Batch Update Repro") {
+  BatchUpdateReproDemo()
+}

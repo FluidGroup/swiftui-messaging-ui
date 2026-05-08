@@ -296,6 +296,8 @@ final class TiledUIView<
   /// DataSource tracking
   private var lastDataSourceID: UUID?
   private var appliedCursor: Int = 0
+  private var isApplyingDataSourceChange: Bool = false
+  private var queuedDataSource: ListDataSource<Item>?
 
   /// Edge load triggers
   private var prependTrigger = EdgeLoadTrigger<PrependLoadingView>()
@@ -637,6 +639,16 @@ final class TiledUIView<
   /// Applies changes from a ListDataSource.
   /// Uses cursor tracking to apply only new changes since last application.
   func applyDataSource(_ dataSource: ListDataSource<Item>) {
+    if isApplyingDataSourceChange {
+      queuedDataSource = dataSource
+      return
+    }
+
+    isApplyingDataSourceChange = true
+    recursive_drainDataSourceChanges(from: dataSource)
+  }
+
+  private func recursive_drainDataSourceChanges(from dataSource: ListDataSource<Item>) {
     // Check if this is a new DataSource instance
     if lastDataSourceID != dataSource.id {
       lastDataSourceID = dataSource.id
@@ -648,14 +660,28 @@ final class TiledUIView<
     // Apply only changes after the cursor
     let pendingChanges = dataSource.pendingChanges
     guard appliedCursor < pendingChanges.count else {
+      if let queuedDataSource {
+        self.queuedDataSource = nil
+        recursive_drainDataSourceChanges(from: queuedDataSource)
+      } else {
+        isApplyingDataSourceChange = false
+      }
       return 
     }
 
-    let newChanges = pendingChanges[appliedCursor...]
-    for change in newChanges {
-      applyChange(change, from: dataSource)
+    let change = pendingChanges[appliedCursor]
+    applyChange(change, from: dataSource) { [weak self] in
+      guard let self else { return }
+
+      appliedCursor += 1
+
+      if let queuedDataSource {
+        self.queuedDataSource = nil
+        recursive_drainDataSourceChanges(from: queuedDataSource)
+      } else {
+        recursive_drainDataSourceChanges(from: dataSource)
+      }
     }
-    appliedCursor = pendingChanges.count
   }
   
   override func layoutSubviews() {
@@ -672,7 +698,11 @@ final class TiledUIView<
 
   }
 
-  private func applyChange(_ change: ListDataSource<Item>.Change, from dataSource: ListDataSource<Item>) {
+  private func applyChange(
+    _ change: ListDataSource<Item>.Change,
+    from dataSource: ListDataSource<Item>,
+    completion: @escaping () -> Void
+  ) {
     switch change {
     case .replace:
       tiledLayout.clear()
@@ -687,25 +717,34 @@ final class TiledUIView<
           scrollTo(edge: .bottom, animated: false)
         }
       }
+      completion()
 
     case .prepend(let ids):
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
-      items.insert(contentsOf: newItems, at: 0)
-      tiledLayout.prependItems(count: newItems.count)
+      guard !newItems.isEmpty else {
+        completion()
+        return
+      }
 
       let indexPaths = (0..<newItems.count).map { IndexPath(item: $0, section: 0) }
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
+          items.insert(contentsOf: newItems, at: 0)
+          tiledLayout.prependItems(count: newItems.count)
           collectionView.insertItems(at: indexPaths)
-        }, completion: nil)
+        }, completion: { _ in
+          completion()
+        })
       }
 
     case .append(let ids):
       let startingIndex = items.count
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
-      items.append(contentsOf: newItems)
-      tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
+      guard !newItems.isEmpty else {
+        completion()
+        return
+      }
 
       let indexPaths = (startingIndex..<startingIndex + newItems.count).map {
         IndexPath(item: $0, section: 0)
@@ -713,20 +752,26 @@ final class TiledUIView<
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
+          items.append(contentsOf: newItems)
+          tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
           collectionView.insertItems(at: indexPaths)
-        }, completion: nil)
-      }
+        }, completion: { [weak self] _ in
+          guard let self else { return }
 
-      if autoScrollsToBottomOnAppend {
-        scrollTo(edge: .bottom, animated: true)
+          if autoScrollsToBottomOnAppend {
+            scrollTo(edge: .bottom, animated: true)
+          }
+
+          completion()
+        })
       }
 
     case .insert(let index, let ids):
       let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
-      for (offset, item) in newItems.enumerated() {
-        items.insert(item, at: index + offset)
+      guard !newItems.isEmpty else {
+        completion()
+        return
       }
-      tiledLayout.insertItems(count: newItems.count, at: index)
 
       let indexPaths = (index..<index + newItems.count).map {
         IndexPath(item: $0, section: 0)
@@ -734,29 +779,39 @@ final class TiledUIView<
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
+          for (offset, item) in newItems.enumerated() {
+            items.insert(item, at: index + offset)
+          }
+          tiledLayout.insertItems(count: newItems.count, at: index)
           collectionView.insertItems(at: indexPaths)
-        }, completion: nil)
+        }, completion: { _ in
+          completion()
+        })
       }
 
     case .update(let ids):
-      for id in ids {
-        if let index = items.firstIndex(where: { $0.id == id }),
-           let newItem = dataSource.items.first(where: { $0.id == id }) {
-          items[index] = newItem
-        }
-      }
-
       let indexPaths = ids.compactMap { id -> IndexPath? in
         guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
         return IndexPath(item: index, section: 0)
       }
 
-      guard !indexPaths.isEmpty else { return }
+      guard !indexPaths.isEmpty else {
+        completion()
+        return
+      }
 
       UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates {
+        collectionView.performBatchUpdates({
+          for id in ids {
+            if let index = items.firstIndex(where: { $0.id == id }),
+               let newItem = dataSource.items.first(where: { $0.id == id }) {
+              items[index] = newItem
+            }
+          }
           collectionView.reconfigureItems(at: indexPaths)
-        }
+        }, completion: { _ in
+          completion()
+        })
       }
 
     case .remove(let ids):
@@ -765,15 +820,21 @@ final class TiledUIView<
       let indicesToRemove = items.enumerated()
         .filter { idsSet.contains($0.element.id) }
         .map { $0.offset }
-      items.removeAll { idsSet.contains($0.id) }
-      tiledLayout.removeItems(at: indicesToRemove)
+      guard !indicesToRemove.isEmpty else {
+        completion()
+        return
+      }
 
       let indexPaths = indicesToRemove.map { IndexPath(item: $0, section: 0) }
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
+          items.removeAll { idsSet.contains($0.id) }
+          tiledLayout.removeItems(at: indicesToRemove)
           collectionView.deleteItems(at: indexPaths)
-        }, completion: nil)
+        }, completion: { _ in
+          completion()
+        })
       }
     }
   }
