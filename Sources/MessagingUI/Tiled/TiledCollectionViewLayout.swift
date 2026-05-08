@@ -20,7 +20,11 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   /// Additional content inset to apply on top of the calculated inset.
   /// Use this to add extra space for keyboard, headers, footers, etc.
-  public var additionalContentInset: UIEdgeInsets = .zero
+  public var additionalContentInset: UIEdgeInsets = .zero {
+    didSet {
+      print(additionalContentInset)
+    }
+  }
 
   /// Size of the header supplementary view (loading indicator at top)
   public var headerSize: CGSize = .zero

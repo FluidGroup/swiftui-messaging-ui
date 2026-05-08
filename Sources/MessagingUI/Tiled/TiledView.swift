@@ -271,9 +271,9 @@ extension Optional where Wrapped == HeaderContent<Never> {
   public static var disabled: HeaderContent<Never>? { nil }
 }
 
-// MARK: - _TiledView
+// MARK: - TiledUIView
 
-final class _TiledView<
+final class TiledUIView<
   Item: Identifiable & Equatable,
   Cell: View,
   PrependLoadingView: View,
@@ -321,6 +321,9 @@ final class _TiledView<
 
   /// Callback when dragging into bottom safe area (additionalContentInset.bottom region)
   var onDragIntoBottomSafeArea: (() -> Void)?
+
+  /// Dedicated pan gesture for detecting drags into the bottom safe area.
+  private var bottomSafeAreaPanGesture: UIPanGestureRecognizer?
 
   /// Track if already triggered to avoid multiple calls per drag session
   private var hasDraggedIntoBottomSafeArea: Bool = false
@@ -544,15 +547,32 @@ final class _TiledView<
         withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
       )
 
-      let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapBackground(_:)))
-      tapGesture.cancelsTouchesInView = false
-      collectionView.addGestureRecognizer(tapGesture)
+      do {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapBackground(_:)))
+        tapGesture.cancelsTouchesInView = false
+        collectionView.addGestureRecognizer(tapGesture)
+      }
+
+      /// setup 
+      do {
+        let bottomSafeAreaPanGesture = UIPanGestureRecognizer(
+          target: self,
+          action: #selector(handleBottomSafeAreaPanGesture(_:))
+        )
+        
+        bottomSafeAreaPanGesture.cancelsTouchesInView = false
+        bottomSafeAreaPanGesture.delegate = self
+        collectionView.addGestureRecognizer(bottomSafeAreaPanGesture)
+        self.bottomSafeAreaPanGesture = bottomSafeAreaPanGesture
+      }
 
       // Setup reveal pan gesture for horizontal swipe-to-reveal
-      let revealGesture = UIPanGestureRecognizer(target: self, action: #selector(handleRevealPanGesture(_:)))
-      revealGesture.delegate = self
-      collectionView.addGestureRecognizer(revealGesture)
-      revealGestureState.panGesture = revealGesture
+      do {
+        let revealGesture = UIPanGestureRecognizer(target: self, action: #selector(handleRevealPanGesture(_:)))
+        revealGesture.delegate = self
+        collectionView.addGestureRecognizer(revealGesture)
+        revealGestureState.panGesture = revealGesture
+      }
 
       addSubview(collectionView)
 
@@ -846,11 +866,6 @@ final class _TiledView<
       appendTrigger.isTriggered = false
     }
 
-    // Check if dragging into bottom safe area
-    if scrollView.isTracking && scrollView.isDragging {
-      checkDragIntoBottomSafeArea(scrollView)
-    }
-
     notifyScrollGeometry()
   }
 
@@ -913,14 +928,27 @@ final class _TiledView<
     onTiledScrollGeometryChange(geometry)
   }
 
-  private func checkDragIntoBottomSafeArea(_ scrollView: UIScrollView) {
+  @objc private func handleBottomSafeAreaPanGesture(_ gesture: UIPanGestureRecognizer) {
+    switch gesture.state {
+    case .began, .changed:
+      checkDragIntoBottomSafeArea(gesture)
+    case .ended, .cancelled, .failed:
+      hasDraggedIntoBottomSafeArea = false
+    default:
+      break
+    }
+  }
+
+  private func checkDragIntoBottomSafeArea(_ gesture: UIPanGestureRecognizer) {
     guard let onDragIntoBottomSafeArea else { return }
 
     let bottomSafeAreaHeight = tiledLayout.additionalContentInset.bottom
-    guard bottomSafeAreaHeight > 0 else { return }
+    guard bottomSafeAreaHeight > 0 else {
+      hasDraggedIntoBottomSafeArea = false
+      return
+    }
 
-    let panGesture = scrollView.panGestureRecognizer
-    let touchLocation = panGesture.location(in: self)
+    let touchLocation = gesture.location(in: self)
     let bottomSafeAreaTop = bounds.height - bottomSafeAreaHeight
 
     if touchLocation.y > bottomSafeAreaTop {
@@ -995,8 +1023,11 @@ final class _TiledView<
     _ gestureRecognizer: UIGestureRecognizer,
     shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
   ) -> Bool {
+    if gestureRecognizer == bottomSafeAreaPanGesture || otherGestureRecognizer == bottomSafeAreaPanGesture {
+      return true
+    }
     // Allow reveal gesture to work with scroll view
-    if gestureRecognizer == revealGestureState.panGesture {
+    if gestureRecognizer == revealGestureState.panGesture || otherGestureRecognizer == revealGestureState.panGesture {
       return true
     }
     return false
@@ -1267,7 +1298,7 @@ struct TiledViewRepresentable<
   StateValue
 >: UIViewRepresentable {
 
-  typealias UIViewType = _TiledView<Item, Cell, PrependLoadingView, AppendLoadingView, TypingIndicatorContent, HeaderContentView, StateValue>
+  typealias UIViewType = TiledUIView<Item, Cell, PrependLoadingView, AppendLoadingView, TypingIndicatorContent, HeaderContentView, StateValue>
 
   let dataSource: ListDataSource<Item>
   let makeInitialState: (Item) -> StateValue
@@ -1377,7 +1408,7 @@ struct TiledViewRepresentable<
 /// ```
 /// TiledView (SwiftUI)
 ///     └── TiledViewRepresentable (UIViewRepresentable)
-///             └── _TiledView (UIView)
+///             └── TiledUIView (UIView)
 ///                     ├── UICollectionView
 ///                     │       └── TiledViewCell (UIHostingConfiguration)
 ///                     └── TiledCollectionViewLayout (Custom Layout)
@@ -1838,4 +1869,3 @@ extension TiledView {
     return self
   }
 }
-
