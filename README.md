@@ -4,7 +4,11 @@
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FFluidGroup%2Fswiftui-messaging-ui%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/FluidGroup/swiftui-messaging-ui)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/FluidGroup/swiftui-messaging-ui)
 
-A primitive component to make Chat-UI with **stable prepending** - no scroll jumps when loading older messages.
+MessagingUI provides stable, composable primitives for building chat interfaces.
+
+Chat UIs are deceptively complex. They need to handle smooth bidirectional scrolling, keyboard-driven layout changes, gesture interactions, and visible-area preservation when older or newer messages are loaded.
+
+This library focuses on the hard parts of chat UI infrastructure, so each app can compose its own experience on top.
 
 | Auto Scrolling | Prepending without jumps | Revealing Info |
 | :--- | :--- | :-- |
