@@ -294,7 +294,7 @@ final class TiledUIView<
   private let sizingCell = TiledViewCell()
 
   /// Item snapshot diff tracking
-  private var isApplyingDataSourceChange: Bool = false
+  private var isApplyingItemChanges: Bool = false
   private var queuedItems: [Item]?
 
   /// Edge load triggers
@@ -639,28 +639,25 @@ final class TiledUIView<
       "TiledView requires each item to have a unique id."
     )
 
-    if isApplyingDataSourceChange {
+    if isApplyingItemChanges {
       queuedItems = newItems
       return
     }
 
-    isApplyingDataSourceChange = true
+    isApplyingItemChanges = true
     recursive_drainItemChanges(to: newItems)
   }
 
   private func recursive_drainItemChanges(to newItems: [Item]) {
-    var dataSource = ListDataSource(displayedItems: items)
-    dataSource.apply(newItems)
+    let changes = TiledItemChange.make(from: items, to: newItems)
     recursive_drainItemChanges(
-      Array(dataSource.pendingChanges),
-      from: dataSource,
+      changes,
       cursor: 0
     )
   }
 
   private func recursive_drainItemChanges(
-    _ changes: [ListDataSource<Item>.Change],
-    from dataSource: ListDataSource<Item>,
+    _ changes: [TiledItemChange<Item>],
     cursor: Int
   ) {
     guard cursor < changes.count else {
@@ -668,19 +665,19 @@ final class TiledUIView<
         self.queuedItems = nil
         recursive_drainItemChanges(to: queuedItems)
       } else {
-        isApplyingDataSourceChange = false
+        isApplyingItemChanges = false
       }
       return
     }
 
-    applyChange(changes[cursor], from: dataSource) { [weak self] in
+    applyChange(changes[cursor]) { [weak self] in
       guard let self else { return }
 
       if let queuedItems {
         self.queuedItems = nil
         recursive_drainItemChanges(to: queuedItems)
       } else {
-        recursive_drainItemChanges(changes, from: dataSource, cursor: cursor + 1)
+        recursive_drainItemChanges(changes, cursor: cursor + 1)
       }
     }
   }
@@ -700,14 +697,13 @@ final class TiledUIView<
   }
 
   private func applyChange(
-    _ change: ListDataSource<Item>.Change,
-    from dataSource: ListDataSource<Item>,
+    _ change: TiledItemChange<Item>,
     completion: @escaping () -> Void
   ) {
     switch change {
-    case .replace:
+    case .replace(let newItems):
       tiledLayout.clear()
-      items = dataSource.items
+      items = Deque(newItems)
       tiledLayout.appendItems(count: items.count, startingIndex: 0)
       collectionView.reloadData()
 
@@ -720,8 +716,7 @@ final class TiledUIView<
       }
       completion()
 
-    case .prepend(let ids):
-      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
+    case .prepend(let newItems):
       guard !newItems.isEmpty else {
         completion()
         return
@@ -739,9 +734,8 @@ final class TiledUIView<
         })
       }
 
-    case .append(let ids):
+    case .append(let newItems):
       let startingIndex = items.count
-      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
       guard !newItems.isEmpty else {
         completion()
         return
@@ -767,8 +761,7 @@ final class TiledUIView<
         })
       }
 
-    case .insert(let index, let ids):
-      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
+    case .insert(let index, let newItems):
       guard !newItems.isEmpty else {
         completion()
         return
@@ -790,9 +783,9 @@ final class TiledUIView<
         })
       }
 
-    case .update(let ids):
-      let indexPaths = ids.compactMap { id -> IndexPath? in
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
+    case .update(let newItems):
+      let indexPaths = newItems.compactMap { item -> IndexPath? in
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return nil }
         return IndexPath(item: index, section: 0)
       }
 
@@ -803,10 +796,9 @@ final class TiledUIView<
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
-          for id in ids {
-            if let index = items.firstIndex(where: { $0.id == id }),
-               let newItem = dataSource.items.first(where: { $0.id == id }) {
-              items[index] = newItem
+          for item in newItems {
+            if let index = items.firstIndex(where: { $0.id == item.id }) {
+              items[index] = item
             }
           }
           collectionView.reconfigureItems(at: indexPaths)

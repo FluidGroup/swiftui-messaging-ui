@@ -267,7 +267,7 @@ messages = refreshedMessages
 
 ```
 Sources/MessagingUI/
-├── ListDataSource.swift          - Internal diff helper
+├── TiledItemChange.swift         - Internal snapshot diff operations
 ├── Tiled/
 │   ├── TiledView.swift
 │   │   ├── TiledViewCell         - UICollectionViewCell with UIHostingConfiguration
