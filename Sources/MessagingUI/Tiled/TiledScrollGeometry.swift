@@ -8,7 +8,7 @@ import UIKit
 ///
 /// ## Example
 /// ```swift
-/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message, _ in
+/// TiledView(items: messages, scrollPosition: $scrollPosition) { message, _ in
 ///   MessageCell(message: message)
 /// }
 /// .onTiledScrollGeometryChange { geometry in

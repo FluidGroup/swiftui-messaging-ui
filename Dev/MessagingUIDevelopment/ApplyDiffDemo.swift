@@ -10,11 +10,11 @@ import MessagingUI
 
 // MARK: - ApplyDiff Demo
 
-/// Demonstrates the `applyDiff(from:)` method which automatically detects
+/// Demonstrates the item snapshot API, which internally detects
 /// prepend, append, insert, update, and remove operations from array differences.
 struct BookApplyDiffDemo: View {
 
-  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var items: [ChatMessage] = []
 
   /// Source of truth - the "server" data
   @State private var serverItems: [ChatMessage] = []
@@ -25,9 +25,6 @@ struct BookApplyDiffDemo: View {
   /// Log of operations performed
   @State private var operationLog: [String] = []
 
-  /// Previous change counter to detect new changes
-  @State private var previousChangeCounter = 0
-
   @State private var scrollPosition = TiledScrollPosition()
 
   var body: some View {
@@ -37,7 +34,7 @@ struct BookApplyDiffDemo: View {
         Text("applyDiff Demo")
           .font(.headline)
 
-        Text("Modify the 'server' array, then applyDiff auto-detects changes")
+        Text("Modify the 'server' array, then TiledView auto-detects changes from [Item]")
           .font(.caption)
           .foregroundStyle(.secondary)
           .multilineTextAlignment(.center)
@@ -134,10 +131,9 @@ struct BookApplyDiffDemo: View {
 
           Button("Reset") {
             serverItems = []
+            items = []
             nextId = 0
             operationLog = []
-            previousChangeCounter = 0
-            dataSource = ListDataSource()
           }
           .buttonStyle(.borderedProminent)
           .tint(.red)
@@ -146,8 +142,6 @@ struct BookApplyDiffDemo: View {
         // Stats
         HStack {
           Text("Items: \(serverItems.count)")
-          Spacer()
-          Text("ChangeCounter: \(dataSource.changeCounter)")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -182,7 +176,7 @@ struct BookApplyDiffDemo: View {
 
       // List View
       TiledView(
-        dataSource: dataSource,
+        items: items,
         scrollPosition: $scrollPosition,
         makeInitialState: { _ in ChatBubbleCellState() }
       ) { message in
@@ -192,17 +186,8 @@ struct BookApplyDiffDemo: View {
   }
 
   private func applyAndLog(_ expectedChange: String) {
-    var updatedDataSource = dataSource
-    updatedDataSource.apply(serverItems)
-
-    // Check if change counter increased
-    let newCounter = updatedDataSource.changeCounter
-    if newCounter > previousChangeCounter {
-      operationLog.append(expectedChange)
-      previousChangeCounter = newCounter
-    }
-
-    dataSource = updatedDataSource
+    items = serverItems
+    operationLog.append(expectedChange)
   }
 
   private func logColor(for log: String) -> Color {
@@ -222,14 +207,13 @@ struct BookApplyDiffDemo: View {
 
 // MARK: - Batch Update Repro Demo
 
-/// Stresses TiledView with multiple ListDataSource changes in one SwiftUI update.
+/// Stresses TiledView with multiple item snapshot changes.
 ///
-/// This intentionally creates the shape that is likely to violate
-/// UICollectionView's batch update contract while the current TiledUIView
-/// applies each pending change one by one.
+/// This intentionally creates rapid same-render item changes so TiledUIView
+/// recomputes diffs from the displayed items to the latest snapshot.
 struct BatchUpdateReproDemo: View {
 
-  @State private var dataSource = ListDataSource<ChatMessage>(items: generateSampleMessages(count: 24, startId: 0))
+  @State private var items = generateSampleMessages(count: 24, startId: 0)
   @State private var scrollPosition = TiledScrollPosition()
   @State private var nextAppendId = 24
   @State private var nextPrependId = -1
@@ -242,7 +226,7 @@ struct BatchUpdateReproDemo: View {
         Text("Batch Update Repro")
           .font(.headline)
 
-        Text("Tap buttons below to enqueue multiple ListDataSource changes before TiledView receives the next SwiftUI update.")
+        Text("Tap buttons below to apply multiple item changes before TiledView receives the next SwiftUI update.")
           .font(.caption)
           .foregroundStyle(.secondary)
           .multilineTextAlignment(.center)
@@ -281,9 +265,7 @@ struct BatchUpdateReproDemo: View {
         }
 
         HStack {
-          Text("Items: \(dataSource.items.count)")
-          Spacer()
-          Text("ChangeCounter: \(dataSource.changeCounter)")
+          Text("Items: \(items.count)")
           Spacer()
           Text("Runs: \(runCount)")
         }
@@ -296,7 +278,7 @@ struct BatchUpdateReproDemo: View {
       Divider()
 
       TiledView(
-        dataSource: dataSource,
+        items: items,
         scrollPosition: $scrollPosition,
         makeInitialState: { _ in ChatBubbleCellState() }
       ) { message in
@@ -306,7 +288,7 @@ struct BatchUpdateReproDemo: View {
   }
 
   private func appendBurst(changeCount: Int) {
-    var nextDataSource = dataSource
+    var nextItems = items
 
     for _ in 0..<changeCount {
       let message = ChatMessage(
@@ -314,35 +296,35 @@ struct BatchUpdateReproDemo: View {
         text: "Same-render append #\(nextAppendId)"
       )
       nextAppendId += 1
-      nextDataSource.append([message])
+      nextItems.append(message)
     }
 
-    dataSource = nextDataSource
+    items = nextItems
     runCount += 1
   }
 
   private func mixedBurst() {
-    var nextDataSource = dataSource
+    var nextItems = items
 
     let prependedMessage = ChatMessage(
       id: nextPrependId,
       text: "Same-render prepend #\(nextPrependId)"
     )
     nextPrependId -= 1
-    nextDataSource.prepend([prependedMessage])
+    nextItems.insert(prependedMessage, at: 0)
 
     let appendedMessage = ChatMessage(
       id: nextAppendId,
       text: "Same-render append #\(nextAppendId)"
     )
     nextAppendId += 1
-    nextDataSource.append([appendedMessage])
+    nextItems.append(appendedMessage)
 
-    if let removableID = Array(nextDataSource.items).dropFirst().first?.id {
-      nextDataSource.remove(id: removableID)
+    if let removableID = nextItems.dropFirst().first?.id {
+      nextItems.remove(id: removableID)
     }
 
-    dataSource = nextDataSource
+    items = nextItems
     runCount += 1
   }
 
@@ -362,7 +344,7 @@ struct BatchUpdateReproDemo: View {
   }
 
   private func reset() {
-    dataSource = ListDataSource<ChatMessage>(items: generateSampleMessages(count: 24, startId: 0))
+    items = generateSampleMessages(count: 24, startId: 0)
     scrollPosition = TiledScrollPosition()
     nextAppendId = 24
     nextPrependId = -1

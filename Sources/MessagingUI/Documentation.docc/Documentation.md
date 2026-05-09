@@ -39,19 +39,18 @@ struct MessageBubbleCell: TiledCellContent {
 }
 
 struct ChatView: View {
-  @State private var dataSource = ListDataSource<Message>()
+  @State private var messages: [Message] = []
   @State private var scrollPosition = TiledScrollPosition()
 
   var body: some View {
     TiledView(
-      dataSource: dataSource,
+      items: messages,
       scrollPosition: $scrollPosition
     ) { message, state in
       MessageBubbleCell(item: message)
     }
     .task {
-      let messages = await fetchMessages()
-      dataSource.apply(messages)
+      messages = await fetchMessages()
     }
   }
 }
@@ -62,7 +61,6 @@ struct ChatView: View {
 ### Essentials
 
 - ``TiledView``
-- ``ListDataSource``
 - ``TiledScrollPosition``
 - ``TiledCellContent``
 - ``CellContext``

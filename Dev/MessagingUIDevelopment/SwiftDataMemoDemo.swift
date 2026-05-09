@@ -96,13 +96,13 @@ struct MemoBubbleCell: TiledCellContent {
   }
 }
 
-// MARK: - MemoStore (using applyDiff)
+// MARK: - MemoStore
 
 @Observable
 final class MemoStore {
 
   private let modelContext: ModelContext
-  private(set) var dataSource = ListDataSource<MemoItem>()
+  private(set) var items: [MemoItem] = []
   private(set) var hasMore = true
 
   /// Current loaded item count for pagination
@@ -141,8 +141,7 @@ final class MemoStore {
     let memos = (try? modelContext.fetch(descriptor)) ?? []
     let items = memos.map(MemoItem.init)
 
-    // Automatically detect and apply diff
-    dataSource.apply(items)
+    self.items = items
 
     hasMore = offset > 0
   }
@@ -256,7 +255,7 @@ struct SwiftDataMemoDemo: View {
       // Memo list
       if let store {
         TiledView(
-          dataSource: store.dataSource,
+          items: store.items,
           scrollPosition: $scrollPosition
         ) { item in
           MemoBubbleCell(item: item) {

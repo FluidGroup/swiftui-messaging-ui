@@ -97,18 +97,18 @@ struct MessageBubbleCell: TiledCellContent {
 }
 
 struct ChatView: View {
-  @State private var dataSource = ListDataSource<Message>()
+  @State private var messages: [Message] = []
   @State private var scrollPosition = TiledScrollPosition()
 
   var body: some View {
     TiledView(
-      dataSource: dataSource,
+      items: messages,
       scrollPosition: $scrollPosition
     ) { message in
       MessageBubbleCell(item: message)
     }
     .task {
-      dataSource.apply(initialMessages)
+      messages = initialMessages
     }
   }
 }
@@ -120,7 +120,7 @@ Use the `.prependLoader()` modifier to handle loading older messages with a buil
 
 ```swift
 TiledView(
-  dataSource: dataSource,
+  items: messages,
   scrollPosition: $scrollPosition
 ) { message in
   MessageBubbleCell(item: message)
@@ -128,7 +128,7 @@ TiledView(
 .prependLoader(.loader(perform: {
   // Called when user scrolls near the top
   let olderMessages = await fetchOlderMessages()
-  dataSource.prepend(olderMessages)
+  messages.insert(contentsOf: olderMessages, at: 0)
 }) {
   // Loading indicator shown while loading
   ProgressView()
@@ -145,7 +145,7 @@ If you need to control the loading state externally:
 @State private var isLoading = false
 
 TiledView(
-  dataSource: dataSource,
+  items: messages,
   scrollPosition: $scrollPosition
 ) { message in
   MessageBubbleCell(item: message)
@@ -226,7 +226,7 @@ Show when other users are typing with the `.typingIndicator()` modifier:
 
 ```swift
 TiledView(
-  dataSource: dataSource,
+  items: messages,
   scrollPosition: $scrollPosition
 ) { message in
   MessageBubbleCell(item: message)
@@ -252,7 +252,7 @@ Display static content above messages, such as a "Start of conversation" banner:
 
 ```swift
 TiledView(
-  dataSource: dataSource,
+  items: messages,
   scrollPosition: $scrollPosition
 ) { message in
   MessageBubbleCell(item: message)
@@ -355,7 +355,7 @@ struct MessageCell: TiledCellContent {
 
 // Provide initial state factory
 TiledView(
-  dataSource: dataSource,
+  items: messages,
   scrollPosition: $scrollPosition,
   makeInitialState: { item in MyCellState() }
 ) { message in
@@ -399,13 +399,13 @@ final class SharedSelectionState {
 }
 
 struct ChatView: View {
-  @State private var dataSource = ListDataSource<Message>()
+  @State private var messages: [Message] = []
   @State private var scrollPosition = TiledScrollPosition()
   @State private var sharedState = SharedSelectionState()
 
   var body: some View {
     TiledView(
-      dataSource: dataSource,
+      items: messages,
       scrollPosition: $scrollPosition,
       makeInitialState: { _ in sharedState }  // Same instance for all cells
     ) { message in

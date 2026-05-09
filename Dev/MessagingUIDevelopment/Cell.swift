@@ -38,6 +38,19 @@ func generateSampleMessages(count: Int, startId: Int) -> [ChatMessage] {
   }
 }
 
+extension Array where Element: Identifiable {
+  mutating func updateExisting(_ newItems: [Element]) {
+    for newItem in newItems {
+      guard let index = firstIndex(where: { $0.id == newItem.id }) else { continue }
+      self[index] = newItem
+    }
+  }
+
+  mutating func remove(id: Element.ID) {
+    removeAll { $0.id == id }
+  }
+}
+
 // MARK: - Chat Bubble View
 
 /// Cell that uses CellStateStorage for state persistence.

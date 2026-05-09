@@ -10,44 +10,16 @@ import Foundation
 
 // MARK: - ListDataSource
 
-/// A data source that tracks changes for efficient list updates.
+/// Internal diff helper used by TiledView.
 ///
-/// ## Overview
-///
-/// `ListDataSource` tracks incremental changes to enable smooth scrolling
-/// without content offset jumps. It's designed for messaging UIs where
-/// maintaining scroll position during updates is critical.
-///
-/// ## Performance: Use Mutating Methods
-///
-/// **Important:** Always modify the data source using its mutating methods
-/// instead of creating new instances. The data source has a unique ``id``
-/// that TiledView uses to detect replacement. Creating a new instance
-/// causes a full reload and loses scroll position.
-///
-/// ```swift
-/// // ✅ Good: Mutate existing instance (id stays the same)
-/// dataSource.apply(newMessages)
-///
-/// // ❌ Bad: Creates new instance (id changes → full reload)
-/// dataSource = ListDataSource(items: newMessages)
-/// ```
-///
-/// ## Recommended Usage
-///
-/// Use ``apply(_:)`` for most cases. It automatically detects changes:
-///
-/// ```swift
-/// @State var dataSource = ListDataSource<Message>()
-///
-/// let messages = await fetchMessages()
-/// dataSource.apply(messages)  // Efficiently applies diff
-/// ```
-public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
+/// Public callers should pass `[Item]` to `TiledView(items:scrollPosition:...)`.
+/// TiledView creates this helper internally to translate item snapshots into
+/// layout-preserving collection view operations.
+struct ListDataSource<Item: Identifiable & Equatable> {
 
   // MARK: - Change
 
-  public enum Change: Equatable {
+  enum Change: Equatable {
     case replace
     case prepend([Item.ID])
     case append([Item.ID])
@@ -58,28 +30,24 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
 
   // MARK: - Properties
 
-  /// Unique identifier for this data source instance.
-  /// Used by TiledView to detect when the data source is replaced.
-  public let id: UUID = UUID()
-
-  /// Change counter used as cursor for tracking applied changes.
-  public private(set) var changeCounter: Int = 0
-
   /// The current items in the data source.
   /// Uses Deque for efficient prepend/append operations.
-  public private(set) var items: Deque<Item> = []
+  private(set) var items: Deque<Item> = []
 
   /// Pending changes that haven't been consumed by TiledView yet.
-  internal private(set) var pendingChanges: [Change] = []
+  private(set) var pendingChanges: [Change] = []
 
   // MARK: - Initializers
 
-  public init() {}
+  init() {}
 
-  public init(items: [Item]) {
+  init(items: [Item]) {
     self.items = Deque(items)
     self.pendingChanges = [.replace]
-    self.changeCounter = 1
+  }
+
+  internal init(displayedItems: Deque<Item>) {
+    self.items = displayedItems
   }
 
   // MARK: - Mutation Methods
@@ -87,53 +55,49 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
   /// Replaces all items with the given items.
   /// Use this for initial load or complete refresh.
   /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
-  public mutating func replace(with items: [Item]) {
+  mutating func replace(with items: [Item]) {
     self.items = Deque(items)
     pendingChanges.append(.replace)
-    changeCounter += 1
   }
 
   /// Adds items to the beginning of the list.
   /// Use this for loading older content (e.g., older messages).
   /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
-  public mutating func prepend(_ items: [Item]) {
+  mutating func prepend(_ items: [Item]) {
     guard !items.isEmpty else { return }
     let ids = items.map { $0.id }
     for item in items.reversed() {
       self.items.prepend(item)
     }
     pendingChanges.append(.prepend(ids))
-    changeCounter += 1
   }
 
   /// Adds items to the end of the list.
   /// Use this for loading newer content (e.g., new messages).
   /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
-  public mutating func append(_ items: [Item]) {
+  mutating func append(_ items: [Item]) {
     guard !items.isEmpty else { return }
     let ids = items.map { $0.id }
     self.items.append(contentsOf: items)
     pendingChanges.append(.append(ids))
-    changeCounter += 1
   }
 
   /// Inserts items at a specific index.
   /// Use this for middle insertions (not at beginning or end).
   /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
-  public mutating func insert(_ items: [Item], at index: Int) {
+  mutating func insert(_ items: [Item], at index: Int) {
     guard !items.isEmpty else { return }
     let ids = items.map { $0.id }
     for (offset, item) in items.enumerated() {
       self.items.insert(item, at: index + offset)
     }
     pendingChanges.append(.insert(at: index, ids: ids))
-    changeCounter += 1
   }
 
   /// Updates existing items by matching their IDs.
   /// Items that don't exist in the current list are ignored.
   /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
-  public mutating func updateExisting(_ items: [Item]) {
+  mutating func updateExisting(_ items: [Item]) {
     guard !items.isEmpty else { return }
     var updatedIds: [Item.ID] = []
     for item in items {
@@ -144,53 +108,42 @@ public struct ListDataSource<Item: Identifiable & Equatable>: Equatable {
     }
     if !updatedIds.isEmpty {
       pendingChanges.append(.update(updatedIds))
-      changeCounter += 1
     }
   }
 
   /// Removes items with the specified IDs.
   /// - Note: Consider using ``apply(_:)`` instead, which automatically detects the appropriate operation.
-  public mutating func remove(ids: [Item.ID]) {
+  mutating func remove(ids: [Item.ID]) {
     guard !ids.isEmpty else { return }
     let idsSet = Set(ids)
     let removedIds = items.filter { idsSet.contains($0.id) }.map { $0.id }
     self.items.removeAll { idsSet.contains($0.id) }
     if !removedIds.isEmpty {
       pendingChanges.append(.remove(removedIds))
-      changeCounter += 1
     }
   }
 
   /// Removes a single item with the specified ID.
-  public mutating func remove(id: Item.ID) {
+  mutating func remove(id: Item.ID) {
     remove(ids: [id])
-  }
-
-  // MARK: - Equatable
-
-  public static func == (lhs: ListDataSource<Item>, rhs: ListDataSource<Item>) -> Bool {
-    // Compare id and items, not pendingChanges or changeCounter
-    // Different id means different data source instance
-    lhs.id == rhs.id && lhs.items == rhs.items
   }
 }
 
 extension ListDataSource {
 
   /// Removes items with the specified IDs (optimized for Hashable IDs).
-  public mutating func remove(ids: Set<Item.ID>) {
+  mutating func remove(ids: Set<Item.ID>) {
     guard !ids.isEmpty else { return }
     let removedIds = items.filter { ids.contains($0.id) }.map { $0.id }
     self.items.removeAll { ids.contains($0.id) }
     if !removedIds.isEmpty {
       pendingChanges.append(.remove(removedIds))
-      changeCounter += 1
     }
   }
 
   /// Applies the difference between current items and new items.
   /// Automatically detects prepend, append, insert, update, and remove operations.
-  public mutating func apply(_ newItems: [Item]) {
+  mutating func apply(_ newItems: [Item]) {
     let oldItems = self.items
 
     // Empty to non-empty: use replace
@@ -316,9 +269,3 @@ extension ListDataSource {
     }
   }
 }
-
-// MARK: - Backward Compatibility
-
-/// Backward compatibility alias for TiledDataSource.
-@available(*, deprecated, renamed: "ListDataSource")
-public typealias TiledDataSource<Item: Identifiable & Equatable> = ListDataSource<Item>

@@ -79,12 +79,12 @@ The reveal gesture is enabled by default. Simply return your cell from the build
 
 ```swift
 struct ChatView: View {
-  @State private var dataSource = ListDataSource<Message>()
+  @State private var messages: [Message] = []
   @State private var scrollPosition = TiledScrollPosition()
 
   var body: some View {
     TiledView(
-      dataSource: dataSource,
+      items: messages,
       scrollPosition: $scrollPosition
     ) { message, state in
       MessageBubbleCell(item: message)

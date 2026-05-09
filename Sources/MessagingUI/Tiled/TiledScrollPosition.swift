@@ -13,7 +13,7 @@
 ///   scrollsToBottomOnReplace: true       // Start at bottom on initial load
 /// )
 ///
-/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { ... }
+/// TiledView(items: messages, scrollPosition: $scrollPosition) { ... }
 /// ```
 ///
 /// ## Programmatic Scrolling

@@ -85,7 +85,7 @@ enum LoadPosition {
 final class ChatStore {
 
   private let modelContext: ModelContext
-  private(set) var dataSource = ListDataSource<ChatMessageItem>()
+  private(set) var items: [ChatMessageItem] = []
   var isAutoReceiveEnabled = false
 
   // Window-based pagination
@@ -161,7 +161,7 @@ final class ChatStore {
     descriptor.fetchLimit = windowSize
 
     let models = (try? modelContext.fetch(descriptor)) ?? []
-    dataSource.apply(models.map(ChatMessageItem.init))
+    items = models.map(ChatMessageItem.init)
   }
 
   func sendMessage(text: String) {
@@ -298,7 +298,7 @@ final class ChatStore {
     totalCount = 0
     windowStart = 0
     windowSize = 0
-    dataSource.replace(with: [])
+    items = []
   }
 }
 
@@ -437,7 +437,7 @@ struct MessengerSwiftDataDemo: View {
   private func loadedContent(store: ChatStore) -> some View {
     ZStack(alignment: .bottomTrailing) {
       TiledView(
-        dataSource: store.dataSource,
+        items: store.items,
         scrollPosition: $scrollPosition
       ) { message in
         ChatMessageCell(item: message) {
