@@ -51,7 +51,7 @@ func generateConversation(count: Int, startId: Int) -> [Message] {
 
 struct MessengerDemo: View {
 
-  @State private var dataSource = ListDataSource<Message>()
+  @State private var messages: [Message] = []
   @State private var scrollPosition = TiledScrollPosition()
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
@@ -64,7 +64,7 @@ struct MessengerDemo: View {
     VStack(spacing: 0) {
       // Messages
       TiledView(
-        dataSource: dataSource,
+        items: messages,
         scrollPosition: $scrollPosition
       ) { message in
         MessageBubbleCell(item: message)
@@ -177,7 +177,7 @@ struct MessengerDemo: View {
       }
     }
     .onAppear {
-      if dataSource.items.isEmpty {
+      if messages.isEmpty {
         resetConversation()
       }
     }
@@ -192,7 +192,7 @@ struct MessengerDemo: View {
       isSentByMe: true,
       timestamp: Date()
     )
-    dataSource.append([message])
+    messages.append(message)
     nextAppendId += 1
     inputText = ""
     scrollPosition.scrollTo(edge: .bottom, animated: true)
@@ -204,7 +204,7 @@ struct MessengerDemo: View {
     Task {
       try? await Task.sleep(for: .seconds(1))
       let messages = generateConversation(count: 5, startId: nextPrependId - 4)
-      dataSource.prepend(messages)
+      self.messages.insert(contentsOf: messages, at: 0)
       nextPrependId -= 5
       isPrependLoading = false
     }
@@ -216,7 +216,7 @@ struct MessengerDemo: View {
     Task {
       try? await Task.sleep(for: .seconds(1))
       let messages = generateConversation(count: 5, startId: nextAppendId)
-      dataSource.append(messages)
+      self.messages.append(contentsOf: messages)
       nextAppendId += 5
       isAppendLoading = false
     }
@@ -249,7 +249,7 @@ struct MessengerDemo: View {
       )
 
       isTyping = false
-      dataSource.append([message])
+      messages.append(message)
       nextAppendId += 1
     }
   }
@@ -259,7 +259,7 @@ struct MessengerDemo: View {
     nextAppendId = 10
     isTyping = false
     let initialMessages = generateConversation(count: 10, startId: 0)
-    dataSource.replace(with: initialMessages)
+    messages = initialMessages
   }
 }
 

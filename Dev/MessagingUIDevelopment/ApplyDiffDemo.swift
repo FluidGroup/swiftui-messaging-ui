@@ -10,11 +10,11 @@ import MessagingUI
 
 // MARK: - ApplyDiff Demo
 
-/// Demonstrates the `applyDiff(from:)` method which automatically detects
+/// Demonstrates the item snapshot API, which internally detects
 /// prepend, append, insert, update, and remove operations from array differences.
 struct BookApplyDiffDemo: View {
 
-  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var items: [ChatMessage] = []
 
   /// Source of truth - the "server" data
   @State private var serverItems: [ChatMessage] = []
@@ -25,9 +25,6 @@ struct BookApplyDiffDemo: View {
   /// Log of operations performed
   @State private var operationLog: [String] = []
 
-  /// Previous change counter to detect new changes
-  @State private var previousChangeCounter = 0
-
   @State private var scrollPosition = TiledScrollPosition()
 
   var body: some View {
@@ -37,7 +34,7 @@ struct BookApplyDiffDemo: View {
         Text("applyDiff Demo")
           .font(.headline)
 
-        Text("Modify the 'server' array, then applyDiff auto-detects changes")
+        Text("Modify the 'server' array, then TiledView auto-detects changes from [Item]")
           .font(.caption)
           .foregroundStyle(.secondary)
           .multilineTextAlignment(.center)
@@ -134,10 +131,9 @@ struct BookApplyDiffDemo: View {
 
           Button("Reset") {
             serverItems = []
+            items = []
             nextId = 0
             operationLog = []
-            previousChangeCounter = 0
-            dataSource = ListDataSource()
           }
           .buttonStyle(.borderedProminent)
           .tint(.red)
@@ -146,8 +142,6 @@ struct BookApplyDiffDemo: View {
         // Stats
         HStack {
           Text("Items: \(serverItems.count)")
-          Spacer()
-          Text("ChangeCounter: \(dataSource.changeCounter)")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -182,7 +176,7 @@ struct BookApplyDiffDemo: View {
 
       // List View
       TiledView(
-        dataSource: dataSource,
+        items: items,
         scrollPosition: $scrollPosition,
         makeInitialState: { _ in ChatBubbleCellState() }
       ) { message in
@@ -192,17 +186,8 @@ struct BookApplyDiffDemo: View {
   }
 
   private func applyAndLog(_ expectedChange: String) {
-    var updatedDataSource = dataSource
-    updatedDataSource.apply(serverItems)
-
-    // Check if change counter increased
-    let newCounter = updatedDataSource.changeCounter
-    if newCounter > previousChangeCounter {
-      operationLog.append(expectedChange)
-      previousChangeCounter = newCounter
-    }
-
-    dataSource = updatedDataSource
+    items = serverItems
+    operationLog.append(expectedChange)
   }
 
   private func logColor(for log: String) -> Color {
@@ -218,4 +203,156 @@ struct BookApplyDiffDemo: View {
 
 #Preview("ApplyDiff Demo") {
   BookApplyDiffDemo()
+}
+
+// MARK: - Batch Update Repro Demo
+
+/// Stresses TiledView with multiple item snapshot changes.
+///
+/// This intentionally creates rapid same-render item changes so TiledUIView
+/// recomputes diffs from the displayed items to the latest snapshot.
+struct BatchUpdateReproDemo: View {
+
+  @State private var items = generateSampleMessages(count: 24, startId: 0)
+  @State private var scrollPosition = TiledScrollPosition()
+  @State private var nextAppendId = 24
+  @State private var nextPrependId = -1
+  @State private var runCount = 0
+  @State private var isStressRunning = false
+
+  var body: some View {
+    VStack(spacing: 0) {
+      VStack(spacing: 12) {
+        Text("Batch Update Repro")
+          .font(.headline)
+
+        Text("Tap buttons below to apply multiple item changes before TiledView receives the next SwiftUI update.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+
+        HStack {
+          Button("Append x2") {
+            appendBurst(changeCount: 2)
+          }
+          .buttonStyle(.bordered)
+
+          Button("Append x5") {
+            appendBurst(changeCount: 5)
+          }
+          .buttonStyle(.bordered)
+          .tint(.orange)
+
+          Button("Mixed") {
+            mixedBurst()
+          }
+          .buttonStyle(.bordered)
+          .tint(.purple)
+        }
+
+        HStack {
+          Button(isStressRunning ? "Running..." : "Stress 100") {
+            runStress()
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(isStressRunning)
+
+          Button("Reset") {
+            reset()
+          }
+          .buttonStyle(.bordered)
+          .tint(.red)
+        }
+
+        HStack {
+          Text("Items: \(items.count)")
+          Spacer()
+          Text("Runs: \(runCount)")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+      .padding()
+      .background(Color(.systemBackground))
+
+      Divider()
+
+      TiledView(
+        items: items,
+        scrollPosition: $scrollPosition,
+        makeInitialState: { _ in ChatBubbleCellState() }
+      ) { message in
+        ChatBubbleCell(item: message)
+      }
+    }
+  }
+
+  private func appendBurst(changeCount: Int) {
+    var nextItems = items
+
+    for _ in 0..<changeCount {
+      let message = ChatMessage(
+        id: nextAppendId,
+        text: "Same-render append #\(nextAppendId)"
+      )
+      nextAppendId += 1
+      nextItems.append(message)
+    }
+
+    items = nextItems
+    runCount += 1
+  }
+
+  private func mixedBurst() {
+    var nextItems = items
+
+    let prependedMessage = ChatMessage(
+      id: nextPrependId,
+      text: "Same-render prepend #\(nextPrependId)"
+    )
+    nextPrependId -= 1
+    nextItems.insert(prependedMessage, at: 0)
+
+    let appendedMessage = ChatMessage(
+      id: nextAppendId,
+      text: "Same-render append #\(nextAppendId)"
+    )
+    nextAppendId += 1
+    nextItems.append(appendedMessage)
+
+    if let removableID = nextItems.dropFirst().first?.id {
+      nextItems.remove(id: removableID)
+    }
+
+    items = nextItems
+    runCount += 1
+  }
+
+  private func runStress() {
+    guard !isStressRunning else { return }
+
+    isStressRunning = true
+
+    Task { @MainActor in
+      for _ in 0..<100 {
+        appendBurst(changeCount: 2)
+        try? await Task.sleep(for: .milliseconds(20))
+      }
+
+      isStressRunning = false
+    }
+  }
+
+  private func reset() {
+    items = generateSampleMessages(count: 24, startId: 0)
+    scrollPosition = TiledScrollPosition()
+    nextAppendId = 24
+    nextPrependId = -1
+    runCount = 0
+    isStressRunning = false
+  }
+}
+
+#Preview("Batch Update Repro") {
+  BatchUpdateReproDemo()
 }

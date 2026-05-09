@@ -19,6 +19,7 @@ enum DemoDestination: Hashable {
   case messengerSwiftData
   case messengerBidirectional
   case applyDiffDemo
+  case batchUpdateRepro
   case swiftDataMemo
 }
 
@@ -148,6 +149,19 @@ struct ContentView: View {
               Image(systemName: "arrow.triangle.2.circlepath")
             }
           }
+
+          NavigationLink(value: DemoDestination.batchUpdateRepro) {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Batch Update Repro")
+                Text("Invalid UICollectionView updates")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "exclamationmark.triangle")
+            }
+          }
         }
 
         Section("SwiftData Integration") {
@@ -205,6 +219,10 @@ struct ContentView: View {
         case .applyDiffDemo:
           BookApplyDiffDemo()
             .navigationTitle("applyDiff Demo")
+            .navigationBarTitleDisplayMode(.inline)
+        case .batchUpdateRepro:
+          BatchUpdateReproDemo()
+            .navigationTitle("Batch Update Repro")
             .navigationBarTitleDisplayMode(.inline)
         case .swiftDataMemo:
           SwiftDataMemoDemo()

@@ -12,7 +12,7 @@ import MessagingUI
 
 struct ListDemoControlPanel: View {
 
-  @Binding var dataSource: ListDataSource<ChatMessage>
+  @Binding var messages: [ChatMessage]
   @Binding var nextPrependId: Int
   @Binding var nextAppendId: Int
 
@@ -21,8 +21,8 @@ struct ListDemoControlPanel: View {
       // Row 1: Prepend / Append
       HStack {
         Button("Prepend 5") {
-          let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
-          dataSource.prepend(messages)
+          let newMessages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+          messages.insert(contentsOf: newMessages, at: 0)
           nextPrependId -= 5
         }
         .buttonStyle(.bordered)
@@ -30,8 +30,8 @@ struct ListDemoControlPanel: View {
         Spacer()
 
         Button("Append 5") {
-          let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-          dataSource.append(messages)
+          let newMessages = generateSampleMessages(count: 5, startId: nextAppendId)
+          messages.append(contentsOf: newMessages)
           nextAppendId += 5
         }
         .buttonStyle(.bordered)
@@ -40,9 +40,9 @@ struct ListDemoControlPanel: View {
       // Row 2: Update / Remove
       HStack {
         Button("Update ID:5") {
-          if var item = dataSource.items.first(where: { $0.id == 5 }) {
+          if var item = messages.first(where: { $0.id == 5 }) {
             item.text = "UPDATED! \(Date().formatted(date: .omitted, time: .standard))"
-            dataSource.updateExisting([item])
+            messages.updateExisting([item])
           }
         }
         .buttonStyle(.bordered)
@@ -50,7 +50,7 @@ struct ListDemoControlPanel: View {
         Spacer()
 
         Button("Remove ID:10") {
-          dataSource.remove(id: 10)
+          messages.remove(id: 10)
         }
         .buttonStyle(.bordered)
       }
@@ -58,13 +58,12 @@ struct ListDemoControlPanel: View {
       // Row 3: Batch operations (multiple pendingChanges)
       HStack {
         Button("Prepend+Append") {
-          // Creates 2 pendingChanges at once
           let prependMessages = generateSampleMessages(count: 3, startId: nextPrependId - 2)
-          dataSource.prepend(prependMessages)
+          messages.insert(contentsOf: prependMessages, at: 0)
           nextPrependId -= 3
 
           let appendMessages = generateSampleMessages(count: 3, startId: nextAppendId)
-          dataSource.append(appendMessages)
+          messages.append(contentsOf: appendMessages)
           nextAppendId += 3
         }
         .buttonStyle(.bordered)
@@ -73,13 +72,12 @@ struct ListDemoControlPanel: View {
         Spacer()
 
         Button("Append+Prepend") {
-          // Creates 2 pendingChanges (append first, then prepend)
           let appendMessages = generateSampleMessages(count: 3, startId: nextAppendId)
-          dataSource.append(appendMessages)
+          messages.append(contentsOf: appendMessages)
           nextAppendId += 3
 
           let prependMessages = generateSampleMessages(count: 3, startId: nextPrependId - 2)
-          dataSource.prepend(prependMessages)
+          messages.insert(contentsOf: prependMessages, at: 0)
           nextPrependId -= 3
         }
         .buttonStyle(.bordered)
@@ -92,16 +90,16 @@ struct ListDemoControlPanel: View {
           nextPrependId = -1
           nextAppendId = 5
           let newItems = generateSampleMessages(count: 5, startId: 0)
-          dataSource.replace(with:newItems)
+          messages = newItems
         }
         .buttonStyle(.borderedProminent)
 
         Spacer()
 
         VStack(alignment: .trailing, spacing: 2) {
-          Text("Count: \(dataSource.items.count)")
+          Text("Count: \(messages.count)")
             .font(.caption)
-          Text("ChangeCounter: \(dataSource.changeCounter)")
+          Text("Items API")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
@@ -114,7 +112,7 @@ struct ListDemoControlPanel: View {
 
 struct BookTiledView: View {
 
-  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var messages: [ChatMessage] = []
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
@@ -124,7 +122,7 @@ struct BookTiledView: View {
   var body: some View {
     ZStack {
       TiledView(
-        dataSource: dataSource,
+        items: messages,
         scrollPosition: $scrollPosition,
         makeInitialState: { _ in ChatBubbleCellState() }
       ) { message in
@@ -135,15 +133,10 @@ struct BookTiledView: View {
       VStack(spacing: 0) {
         Divider()
         HStack {
-          Text("\(dataSource.items.count) items")
+          Text("\(messages.count) items")
             .font(.caption)
             .foregroundStyle(.secondary)
           Spacer()
-          HStack(spacing: 12) {
-            Text("v\(dataSource.changeCounter)")
-              .font(.caption2)
-              .foregroundStyle(.tertiary)
-          }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
@@ -154,8 +147,8 @@ struct BookTiledView: View {
       ToolbarItemGroup(placement: .bottomBar) {
         // Prepend
         Button {
-          let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
-          dataSource.prepend(messages)
+          let newMessages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+          messages.insert(contentsOf: newMessages, at: 0)
           nextPrependId -= 5
         } label: {
           Image(systemName: "arrow.up.doc")
@@ -163,8 +156,8 @@ struct BookTiledView: View {
 
         // Append
         Button {
-          let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-          dataSource.append(messages)
+          let newMessages = generateSampleMessages(count: 5, startId: nextAppendId)
+          messages.append(contentsOf: newMessages)
           nextAppendId += 5
         } label: {
           Image(systemName: "arrow.down.doc")
@@ -190,25 +183,25 @@ struct BookTiledView: View {
         // More actions
         Menu {
           Button {
-            let middleIndex = dataSource.items.count / 2
+            let middleIndex = messages.count / 2
             let message = ChatMessage(id: nextAppendId, text: "Inserted at \(middleIndex)")
-            dataSource.insert([message], at: middleIndex)
+            messages.insert(message, at: middleIndex)
             nextAppendId += 1
           } label: {
             Label("Insert at middle", systemImage: "arrow.right.doc.on.clipboard")
           }
 
           Button {
-            if var item = dataSource.items.first(where: { $0.id == 5 }) {
+            if var item = messages.first(where: { $0.id == 5 }) {
               item.text = "UPDATED! \(Date().formatted(date: .omitted, time: .standard))"
-              dataSource.updateExisting([item])
+              messages.updateExisting([item])
             }
           } label: {
             Label("Update ID:5", systemImage: "pencil")
           }
 
           Button(role: .destructive) {
-            dataSource.remove(id: 10)
+            messages.remove(id: 10)
           } label: {
             Label("Remove ID:10", systemImage: "trash")
           }
@@ -219,7 +212,7 @@ struct BookTiledView: View {
             nextPrependId = -1
             nextAppendId = 5
             let newItems = generateSampleMessages(count: 5, startId: 0)
-            dataSource.replace(with:newItems)
+            messages = newItems
           } label: {
             Label("Reset", systemImage: "arrow.counterclockwise")
           }
@@ -237,7 +230,7 @@ struct BookTiledView: View {
 
 struct BookTiledViewLoadingIndicator: View {
 
-  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var messages: [ChatMessage] = []
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
@@ -246,7 +239,7 @@ struct BookTiledViewLoadingIndicator: View {
 
   var body: some View {
     TiledView(
-      dataSource: dataSource,
+      items: messages,
       scrollPosition: $scrollPosition,
       makeInitialState: { _ in ChatBubbleCellState() }
     ) { message in
@@ -282,7 +275,7 @@ struct BookTiledViewLoadingIndicator: View {
       VStack(spacing: 0) {
         Divider()
         HStack {
-          Text("\(dataSource.items.count) items")
+          Text("\(messages.count) items")
             .font(.caption)
             .foregroundStyle(.secondary)
           Spacer()
@@ -313,8 +306,8 @@ struct BookTiledViewLoadingIndicator: View {
             // Simulate loading and prepend after 2 seconds
             Task {
               try? await Task.sleep(for: .seconds(2))
-              let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
-              dataSource.prepend(messages)
+              let newMessages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+              messages.insert(contentsOf: newMessages, at: 0)
               nextPrependId -= 5
               isPrependLoading = false
             }
@@ -330,8 +323,8 @@ struct BookTiledViewLoadingIndicator: View {
             // Simulate loading and append after 2 seconds
             Task {
               try? await Task.sleep(for: .seconds(2))
-              let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-              dataSource.append(messages)
+              let newMessages = generateSampleMessages(count: 5, startId: nextAppendId)
+              messages.append(contentsOf: newMessages)
               nextAppendId += 5
               isAppendLoading = false
             }
@@ -364,7 +357,7 @@ struct BookTiledViewLoadingIndicator: View {
           isPrependLoading = false
           isAppendLoading = false
           let newItems = generateSampleMessages(count: 5, startId: 0)
-          dataSource.replace(with: newItems)
+          messages = newItems
         } label: {
           Image(systemName: "arrow.counterclockwise")
         }
@@ -393,7 +386,7 @@ struct BookTiledViewLoadingIndicator: View {
 
 struct BookTiledViewTypingIndicator: View {
 
-  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var messages: [ChatMessage] = []
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
@@ -402,7 +395,7 @@ struct BookTiledViewTypingIndicator: View {
 
   var body: some View {
     TiledView(
-      dataSource: dataSource,
+      items: messages,
       scrollPosition: $scrollPosition,
       makeInitialState: { _ in ChatBubbleCellState() }
     ) { message in
@@ -437,7 +430,7 @@ struct BookTiledViewTypingIndicator: View {
       VStack(spacing: 0) {
         Divider()
         HStack {
-          Text("\(dataSource.items.count) items")
+          Text("\(messages.count) items")
             .font(.caption)
             .foregroundStyle(.secondary)
           Spacer()
@@ -473,8 +466,8 @@ struct BookTiledViewTypingIndicator: View {
           if isAppendLoading {
             Task {
               try? await Task.sleep(for: .seconds(2))
-              let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-              dataSource.append(messages)
+              let newMessages = generateSampleMessages(count: 5, startId: nextAppendId)
+              messages.append(contentsOf: newMessages)
               nextAppendId += 5
               isAppendLoading = false
             }
@@ -487,8 +480,8 @@ struct BookTiledViewTypingIndicator: View {
 
         // Append
         Button {
-          let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-          dataSource.append(messages)
+          let newMessages = generateSampleMessages(count: 5, startId: nextAppendId)
+          messages.append(contentsOf: newMessages)
           nextAppendId += 5
         } label: {
           Image(systemName: "arrow.down.doc")
@@ -510,7 +503,7 @@ struct BookTiledViewTypingIndicator: View {
           isTyping = false
           isAppendLoading = false
           let newItems = generateSampleMessages(count: 5, startId: 0)
-          dataSource.replace(with: newItems)
+          messages = newItems
         } label: {
           Image(systemName: "arrow.counterclockwise")
         }
@@ -603,7 +596,7 @@ struct ExpandableConversationHeader: View {
 
 struct BookTiledViewHeaderContent: View {
 
-  @State private var dataSource = ListDataSource<ChatMessage>()
+  @State private var messages: [ChatMessage] = []
   @State private var nextPrependId = -1
   @State private var nextAppendId = 0
   @State private var scrollPosition = TiledScrollPosition()
@@ -618,7 +611,7 @@ struct BookTiledViewHeaderContent: View {
 
   var body: some View {
     TiledView(
-      dataSource: dataSource,
+      items: messages,
       scrollPosition: $scrollPosition,
       makeInitialState: { _ in ChatBubbleCellState() }
     ) { message in
@@ -653,8 +646,8 @@ struct BookTiledViewHeaderContent: View {
           if isPrependLoading {
             Task {
               try? await Task.sleep(for: .seconds(2))
-              let messages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
-              dataSource.prepend(messages)
+              let newMessages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+              messages.insert(contentsOf: newMessages, at: 0)
               nextPrependId -= 5
               isPrependLoading = false
             }
@@ -682,8 +675,8 @@ struct BookTiledViewHeaderContent: View {
 
         // Append
         Button {
-          let messages = generateSampleMessages(count: 5, startId: nextAppendId)
-          dataSource.append(messages)
+          let newMessages = generateSampleMessages(count: 5, startId: nextAppendId)
+          messages.append(contentsOf: newMessages)
           nextAppendId += 5
         } label: {
           Image(systemName: "arrow.down.doc")
@@ -696,7 +689,7 @@ struct BookTiledViewHeaderContent: View {
           isPrependLoading = false
           isHeaderVisible = true
           let newItems = generateSampleMessages(count: 5, startId: 0)
-          dataSource.replace(with: newItems)
+          messages = newItems
         } label: {
           Image(systemName: "arrow.counterclockwise")
         }

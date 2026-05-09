@@ -113,7 +113,7 @@ private struct RevealGestureState: ~Copyable {
 ///
 /// ```swift
 /// // Async mode (auto-managed loading state)
-/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message in
+/// TiledView(items: messages, scrollPosition: $scrollPosition) { message in
 ///   MessageBubbleCell(item: message)
 /// }
 /// .prependLoader(.loader(perform: {
@@ -196,7 +196,7 @@ extension Optional where Wrapped == Loader<Never> {
 /// The indicator appears below the last message and above the append loader.
 ///
 /// ```swift
-/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message in
+/// TiledView(items: messages, scrollPosition: $scrollPosition) { message in
 ///   MessageBubbleCell(item: message)
 /// }
 /// .typingIndicator(.indicator(isVisible: store.isTyping) {
@@ -240,7 +240,7 @@ extension Optional where Wrapped == TypingIndicator<Never> {
 /// between the prepend loader and the first message item.
 ///
 /// ```swift
-/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message in
+/// TiledView(items: messages, scrollPosition: $scrollPosition) { message in
 ///   MessageBubbleCell(item: message)
 /// }
 /// .headerContent(.header {
@@ -293,9 +293,9 @@ final class TiledUIView<
   /// prototype cell for size measurement
   private let sizingCell = TiledViewCell()
 
-  /// DataSource tracking
-  private var lastDataSourceID: UUID?
-  private var appliedCursor: Int = 0
+  /// Item snapshot diff tracking
+  private var isApplyingItemChanges: Bool = false
+  private var queuedItems: [Item]?
 
   /// Edge load triggers
   private var prependTrigger = EdgeLoadTrigger<PrependLoadingView>()
@@ -495,8 +495,6 @@ final class TiledUIView<
   
   private var pendingActionsOnLayoutSubviews: [() -> Void] = []
 
-  typealias DataSource = ListDataSource<Item>
-
   init(
     makeInitialState: @escaping (Item) -> StateValue,
     cellBuilder: @escaping (Item, CellReveal?, CellStateStorage<StateValue>) -> Cell
@@ -632,32 +630,58 @@ final class TiledUIView<
     return size
   }
 
-  // MARK: - DataSource-based API
+  // MARK: - Items-based API
 
-  /// Applies changes from a ListDataSource.
-  /// Uses cursor tracking to apply only new changes since last application.
-  func applyDataSource(_ dataSource: ListDataSource<Item>) {
-    // Check if this is a new DataSource instance
-    if lastDataSourceID != dataSource.id {
-      lastDataSourceID = dataSource.id
-      appliedCursor = 0
-      tiledLayout.clear()
-      items.removeAll()
+  /// Applies a new item snapshot by diffing it against the currently displayed items.
+  func applyItems(_ newItems: [Item]) {
+    assert(
+      Set(newItems.map(\.id)).count == newItems.count,
+      "TiledView requires each item to have a unique id."
+    )
+
+    if isApplyingItemChanges {
+      queuedItems = newItems
+      return
     }
 
-    // Apply only changes after the cursor
-    let pendingChanges = dataSource.pendingChanges
-    guard appliedCursor < pendingChanges.count else {
-      return 
-    }
-
-    let newChanges = pendingChanges[appliedCursor...]
-    for change in newChanges {
-      applyChange(change, from: dataSource)
-    }
-    appliedCursor = pendingChanges.count
+    isApplyingItemChanges = true
+    recursive_drainItemChanges(to: newItems)
   }
-  
+
+  private func recursive_drainItemChanges(to newItems: [Item]) {
+    let changes = TiledItemChange.make(from: items, to: newItems)
+    recursive_drainItemChanges(
+      changes,
+      cursor: 0
+    )
+  }
+
+  private func recursive_drainItemChanges(
+    _ changes: [TiledItemChange<Item>],
+    cursor: Int
+  ) {
+    guard cursor < changes.count else {
+      if let queuedItems {
+        self.queuedItems = nil
+        recursive_drainItemChanges(to: queuedItems)
+      } else {
+        isApplyingItemChanges = false
+      }
+      return
+    }
+
+    applyChange(changes[cursor]) { [weak self] in
+      guard let self else { return }
+
+      if let queuedItems {
+        self.queuedItems = nil
+        recursive_drainItemChanges(to: queuedItems)
+      } else {
+        recursive_drainItemChanges(changes, cursor: cursor + 1)
+      }
+    }
+  }
+
   override func layoutSubviews() {
     super.layoutSubviews()
     
@@ -672,11 +696,14 @@ final class TiledUIView<
 
   }
 
-  private func applyChange(_ change: ListDataSource<Item>.Change, from dataSource: ListDataSource<Item>) {
+  private func applyChange(
+    _ change: TiledItemChange<Item>,
+    completion: @escaping () -> Void
+  ) {
     switch change {
-    case .replace:
+    case .replace(let newItems):
       tiledLayout.clear()
-      items = dataSource.items
+      items = Deque(newItems)
       tiledLayout.appendItems(count: items.count, startingIndex: 0)
       collectionView.reloadData()
 
@@ -687,25 +714,32 @@ final class TiledUIView<
           scrollTo(edge: .bottom, animated: false)
         }
       }
+      completion()
 
-    case .prepend(let ids):
-      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
-      items.insert(contentsOf: newItems, at: 0)
-      tiledLayout.prependItems(count: newItems.count)
+    case .prepend(let newItems):
+      guard !newItems.isEmpty else {
+        completion()
+        return
+      }
 
       let indexPaths = (0..<newItems.count).map { IndexPath(item: $0, section: 0) }
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
+          items.insert(contentsOf: newItems, at: 0)
+          tiledLayout.prependItems(count: newItems.count)
           collectionView.insertItems(at: indexPaths)
-        }, completion: nil)
+        }, completion: { _ in
+          completion()
+        })
       }
 
-    case .append(let ids):
+    case .append(let newItems):
       let startingIndex = items.count
-      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
-      items.append(contentsOf: newItems)
-      tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
+      guard !newItems.isEmpty else {
+        completion()
+        return
+      }
 
       let indexPaths = (startingIndex..<startingIndex + newItems.count).map {
         IndexPath(item: $0, section: 0)
@@ -713,20 +747,25 @@ final class TiledUIView<
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
+          items.append(contentsOf: newItems)
+          tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
           collectionView.insertItems(at: indexPaths)
-        }, completion: nil)
+        }, completion: { [weak self] _ in
+          guard let self else { return }
+
+          if autoScrollsToBottomOnAppend {
+            scrollTo(edge: .bottom, animated: true)
+          }
+
+          completion()
+        })
       }
 
-      if autoScrollsToBottomOnAppend {
-        scrollTo(edge: .bottom, animated: true)
+    case .insert(let index, let newItems):
+      guard !newItems.isEmpty else {
+        completion()
+        return
       }
-
-    case .insert(let index, let ids):
-      let newItems = ids.compactMap { id in dataSource.items.first { $0.id == id } }
-      for (offset, item) in newItems.enumerated() {
-        items.insert(item, at: index + offset)
-      }
-      tiledLayout.insertItems(count: newItems.count, at: index)
 
       let indexPaths = (index..<index + newItems.count).map {
         IndexPath(item: $0, section: 0)
@@ -734,29 +773,38 @@ final class TiledUIView<
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
+          for (offset, item) in newItems.enumerated() {
+            items.insert(item, at: index + offset)
+          }
+          tiledLayout.insertItems(count: newItems.count, at: index)
           collectionView.insertItems(at: indexPaths)
-        }, completion: nil)
+        }, completion: { _ in
+          completion()
+        })
       }
 
-    case .update(let ids):
-      for id in ids {
-        if let index = items.firstIndex(where: { $0.id == id }),
-           let newItem = dataSource.items.first(where: { $0.id == id }) {
-          items[index] = newItem
-        }
-      }
-
-      let indexPaths = ids.compactMap { id -> IndexPath? in
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return nil }
+    case .update(let newItems):
+      let indexPaths = newItems.compactMap { item -> IndexPath? in
+        guard let index = items.firstIndex(where: { $0.id == item.id }) else { return nil }
         return IndexPath(item: index, section: 0)
       }
 
-      guard !indexPaths.isEmpty else { return }
+      guard !indexPaths.isEmpty else {
+        completion()
+        return
+      }
 
       UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates {
+        collectionView.performBatchUpdates({
+          for item in newItems {
+            if let index = items.firstIndex(where: { $0.id == item.id }) {
+              items[index] = item
+            }
+          }
           collectionView.reconfigureItems(at: indexPaths)
-        }
+        }, completion: { _ in
+          completion()
+        })
       }
 
     case .remove(let ids):
@@ -765,15 +813,21 @@ final class TiledUIView<
       let indicesToRemove = items.enumerated()
         .filter { idsSet.contains($0.element.id) }
         .map { $0.offset }
-      items.removeAll { idsSet.contains($0.id) }
-      tiledLayout.removeItems(at: indicesToRemove)
+      guard !indicesToRemove.isEmpty else {
+        completion()
+        return
+      }
 
       let indexPaths = indicesToRemove.map { IndexPath(item: $0, section: 0) }
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
+          items.removeAll { idsSet.contains($0.id) }
+          tiledLayout.removeItems(at: indicesToRemove)
           collectionView.deleteItems(at: indexPaths)
-        }, completion: nil)
+        }, completion: { _ in
+          completion()
+        })
       }
     }
   }
@@ -1300,7 +1354,7 @@ struct TiledViewRepresentable<
 
   typealias UIViewType = TiledUIView<Item, Cell, PrependLoadingView, AppendLoadingView, TypingIndicatorContent, HeaderContentView, StateValue>
 
-  let dataSource: ListDataSource<Item>
+  let items: [Item]
   let makeInitialState: (Item) -> StateValue
   let cellBuilder: (Item, CellReveal?, CellStateStorage<StateValue>) -> Cell
   let onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
@@ -1316,7 +1370,7 @@ struct TiledViewRepresentable<
   @Binding var scrollPosition: TiledScrollPosition
 
   init(
-    dataSource: ListDataSource<Item>,
+    items: [Item],
     scrollPosition: Binding<TiledScrollPosition>,
     makeInitialState: @escaping (Item) -> StateValue,
     onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)? = nil,
@@ -1331,7 +1385,7 @@ struct TiledViewRepresentable<
     headerContent: HeaderContent<HeaderContentView>?,
     cellBuilder: @escaping (Item, CellReveal?, CellStateStorage<StateValue>) -> Cell
   ) {
-    self.dataSource = dataSource
+    self.items = items
     self._scrollPosition = scrollPosition
     self.makeInitialState = makeInitialState
     self.onTiledScrollGeometryChange = onTiledScrollGeometryChange
@@ -1384,7 +1438,7 @@ struct TiledViewRepresentable<
     uiView.setTypingIndicator(typingIndicator)
     uiView.setHeaderContent(headerContent)
 
-    uiView.applyDataSource(dataSource)
+    uiView.applyItems(items)
     uiView.applyScrollPosition(scrollPosition)
   }
 }
@@ -1418,12 +1472,12 @@ struct TiledViewRepresentable<
 ///
 /// ```swift
 /// struct ChatView: View {
-///   @State private var dataSource = ListDataSource<Message>()
+///   @State private var messages: [Message] = []
 ///   @State private var scrollPosition = TiledScrollPosition()
 ///
 ///   var body: some View {
 ///     TiledView(
-///       dataSource: dataSource,
+///       items: messages,
 ///       scrollPosition: $scrollPosition
 ///     ) { message in
 ///       MessageBubbleCell(item: message)
@@ -1438,7 +1492,7 @@ struct TiledViewRepresentable<
 ///       Text("Start of conversation")
 ///     })
 ///     .onAppear {
-///       dataSource.replace(with: initialMessages)
+///       messages = initialMessages
 ///     }
 ///   }
 /// }
@@ -1454,23 +1508,15 @@ struct TiledViewRepresentable<
 /// - `.typingIndicator(_:)` — Typing indicator shown below the last message
 /// - `.headerContent(_:)` — Static header between prepend loader and first item
 ///
-/// ## ListDataSource
+/// ## Items
 ///
-/// Use ``ListDataSource`` to manage items. It tracks changes for efficient updates.
-///
-/// **Recommended:** Use ``ListDataSource/apply(_:)`` for most cases.
-/// It automatically detects the appropriate operation.
+/// Use a plain `[Item]` as the source of truth. TiledView compares the currently
+/// displayed items with the new snapshot and applies the appropriate changes.
 ///
 /// ```swift
-/// dataSource.apply([...])           // Recommended: Auto-detect changes
-///
-/// // Manual operations (when you know the exact change type)
-/// dataSource.replace(with: [...])   // Replace all items
-/// dataSource.prepend([...])         // Add to beginning (older messages)
-/// dataSource.append([...])          // Add to end (newer messages)
-/// dataSource.insert([...], at: 5)   // Insert at specific index
-/// dataSource.updateExisting([...])  // Update existing items
-/// dataSource.remove(ids: [...])     // Remove by IDs
+/// messages = latestMessages
+/// messages.insert(contentsOf: olderMessages, at: 0)
+/// messages.append(newMessage)
 /// ```
 ///
 /// ## TiledScrollPosition
@@ -1500,7 +1546,7 @@ struct TiledViewRepresentable<
 /// }
 ///
 /// // 2. Use state in cell builder
-/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { item, state in
+/// TiledView(items: messages, scrollPosition: $scrollPosition) { item, state in
 ///   let isExpanded = state[IsExpandedKey.self]
 ///   MyCell(item: item, isExpanded: isExpanded)
 /// }
@@ -1527,12 +1573,12 @@ struct TiledViewRepresentable<
 /// Use `.prependLoader()` modifier to load older content when scrolling near top:
 ///
 /// ```swift
-/// TiledView(dataSource: dataSource, scrollPosition: $scrollPosition) { message in
+/// TiledView(items: messages, scrollPosition: $scrollPosition) { message in
 ///   MessageBubbleCell(item: message)
 /// }
 /// .prependLoader(.loader(perform: {
 ///   let olderMessages = await api.fetchOlderMessages()
-///   dataSource.prepend(olderMessages)
+///   messages.insert(contentsOf: olderMessages, at: 0)
 /// }) {
 ///   ProgressView()
 /// })
@@ -1557,7 +1603,7 @@ public struct TiledView<
   StateValue
 >: View {
 
-  let dataSource: ListDataSource<Item>
+  let items: [Item]
   let makeInitialState: (Item) -> StateValue
   let cellBuilder: (Item, CellReveal?, CellStateStorage<StateValue>) -> Cell
   var onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
@@ -1573,7 +1619,7 @@ public struct TiledView<
 
   /// Internal initializer for creating TiledView with all parameters (used by modifiers)
   init(
-    dataSource: ListDataSource<Item>,
+    items: [Item],
     makeInitialState: @escaping (Item) -> StateValue,
     cellBuilder: @escaping (Item, CellReveal?, CellStateStorage<StateValue>) -> Cell,
     onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?,
@@ -1587,7 +1633,7 @@ public struct TiledView<
     headerContent: HeaderContent<HeaderContentView>?,
     scrollPosition: Binding<TiledScrollPosition>
   ) {
-    self.dataSource = dataSource
+    self.items = items
     self.makeInitialState = makeInitialState
     self.cellBuilder = cellBuilder
     self.onTiledScrollGeometryChange = onTiledScrollGeometryChange
@@ -1612,7 +1658,7 @@ extension TiledView where PrependLoadingView == Never, AppendLoadingView == Neve
   /// Add supplementary views using modifiers:
   /// ```swift
   /// TiledView(
-  ///   dataSource: dataSource,
+  ///   items: messages,
   ///   scrollPosition: $scrollPosition,
   ///   makeInitialState: { _ in 0 }
   /// ) { message in
@@ -1624,17 +1670,17 @@ extension TiledView where PrependLoadingView == Never, AppendLoadingView == Neve
   /// ```
   ///
   /// - Parameters:
-  ///   - dataSource: The data source containing items to display.
+  ///   - items: The items to display.
   ///   - scrollPosition: Binding to control scroll position.
   ///   - makeInitialState: A closure that creates the initial state for each item.
   ///   - cellBuilder: A closure that returns a `TiledCellContent` for each item.
   public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
+    items: [Item],
     scrollPosition: Binding<TiledScrollPosition>,
     makeInitialState: @escaping (Item) -> StateValue,
     cellBuilder: @escaping (Item) -> CellContent
   ) where Cell == TiledCellContentWrapper<CellContent>, StateValue == CellContent.StateValue {
-    self.dataSource = dataSource
+    self.items = items
     self._scrollPosition = scrollPosition
     self.makeInitialState = makeInitialState
     self.prependLoader = nil
@@ -1649,6 +1695,7 @@ extension TiledView where PrependLoadingView == Never, AppendLoadingView == Neve
       )
     }
   }
+
 }
 
 extension TiledView where StateValue == Void, PrependLoadingView == Never, AppendLoadingView == Never, TypingIndicatorContent == Never, HeaderContentView == Never {
@@ -1657,17 +1704,18 @@ extension TiledView where StateValue == Void, PrependLoadingView == Never, Appen
   ///
   /// Convenience initializer where `makeInitialState` defaults to `{ _ in () }`.
   public init<CellContent: TiledCellContent>(
-    dataSource: ListDataSource<Item>,
+    items: [Item],
     scrollPosition: Binding<TiledScrollPosition>,
     cellBuilder: @escaping (Item) -> CellContent
   ) where Cell == TiledCellContentWrapper<CellContent>, CellContent.StateValue == Void {
     self.init(
-      dataSource: dataSource,
+      items: items,
       scrollPosition: scrollPosition,
       makeInitialState: { _ in () },
       cellBuilder: cellBuilder
     )
   }
+
 }
 
 // MARK: - Supplementary View Modifiers
@@ -1679,7 +1727,7 @@ extension TiledView where PrependLoadingView == Never {
     _ loader: Loader<V>?
   ) -> TiledView<Item, Cell, V, AppendLoadingView, TypingIndicatorContent, HeaderContentView, StateValue> {
     .init(
-      dataSource: dataSource,
+      items: items,
       makeInitialState: makeInitialState,
       cellBuilder: cellBuilder,
       onTiledScrollGeometryChange: onTiledScrollGeometryChange,
@@ -1703,7 +1751,7 @@ extension TiledView where AppendLoadingView == Never {
     _ loader: Loader<V>?
   ) -> TiledView<Item, Cell, PrependLoadingView, V, TypingIndicatorContent, HeaderContentView, StateValue> {
     .init(
-      dataSource: dataSource,
+      items: items,
       makeInitialState: makeInitialState,
       cellBuilder: cellBuilder,
       onTiledScrollGeometryChange: onTiledScrollGeometryChange,
@@ -1727,7 +1775,7 @@ extension TiledView where TypingIndicatorContent == Never {
     _ indicator: TypingIndicator<V>?
   ) -> TiledView<Item, Cell, PrependLoadingView, AppendLoadingView, V, HeaderContentView, StateValue> {
     .init(
-      dataSource: dataSource,
+      items: items,
       makeInitialState: makeInitialState,
       cellBuilder: cellBuilder,
       onTiledScrollGeometryChange: onTiledScrollGeometryChange,
@@ -1751,7 +1799,7 @@ extension TiledView where HeaderContentView == Never {
     _ header: HeaderContent<V>?
   ) -> TiledView<Item, Cell, PrependLoadingView, AppendLoadingView, TypingIndicatorContent, V, StateValue> {
     .init(
-      dataSource: dataSource,
+      items: items,
       makeInitialState: makeInitialState,
       cellBuilder: cellBuilder,
       onTiledScrollGeometryChange: onTiledScrollGeometryChange,
@@ -1775,7 +1823,7 @@ extension TiledView {
   public var body: some View {
     GeometryReader { proxy in
       TiledViewRepresentable(
-        dataSource: dataSource,
+        items: items,
         scrollPosition: $scrollPosition,
         makeInitialState: makeInitialState,
         onTiledScrollGeometryChange: onTiledScrollGeometryChange,

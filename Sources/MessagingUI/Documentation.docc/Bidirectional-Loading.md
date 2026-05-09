@@ -29,20 +29,24 @@ Many messaging apps need to open conversations at a specific message (e.g., sear
 
 ## Basic Usage
 
-Use `onPrepend` and `onAppend` callbacks to trigger loading:
+Use prepend and append loaders to trigger loading:
 
 ```swift
 TiledView(
-  dataSource: dataSource,
-  scrollPosition: $scrollPosition,
-  onPrepend: {
-    await loadOlderMessages()
-  },
-  onAppend: {
-    await loadNewerMessages()
-  }
+  items: messages,
+  scrollPosition: $scrollPosition
 ) { message, state in
   MessageBubble(message: message)
+}
+.prependLoader(.loader(perform: {
+    await loadOlderMessages()
+}) {
+  ProgressView()
+})
+.appendLoader(.loader(perform: {
+    await loadNewerMessages()
+}) {
+  ProgressView()
 }
 ```
 
@@ -72,7 +76,7 @@ hasNewer = (windowEnd < totalCount) = true  → Can load newer
 @Observable
 final class MessageStore {
   private let modelContext: ModelContext
-  private(set) var dataSource = ListDataSource<MessageItem>()
+  private(set) var messages: [MessageItem] = []
 
   // Window state
   private(set) var totalCount = 0
@@ -128,7 +132,7 @@ final class MessageStore {
     descriptor.fetchLimit = windowSize
 
     let models = (try? modelContext.fetch(descriptor)) ?? []
-    dataSource.apply(models.map(MessageItem.init))
+    messages = models.map(MessageItem.init)
   }
 }
 ```

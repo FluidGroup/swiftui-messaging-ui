@@ -34,7 +34,7 @@ import SwiftUI
 ///
 /// // Usage in TiledView
 /// TiledView(
-///   dataSource: dataSource,
+///   items: messages,
 ///   scrollPosition: $scrollPosition,
 ///   makeInitialState: { item in 0 }
 /// ) { message in
@@ -154,7 +154,7 @@ public struct CellContext<StateValue> {
   /// let sharedState = SharedSelectionState()
   ///
   /// TiledView(
-  ///   dataSource: dataSource,
+  ///   items: messages,
   ///   scrollPosition: $scrollPosition,
   ///   makeInitialState: { _ in sharedState }  // Same instance for all cells
   /// ) { item in
