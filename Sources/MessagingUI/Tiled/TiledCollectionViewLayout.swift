@@ -18,21 +18,12 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// If nil is returned, estimatedHeight will be used.
   public var itemSizeProvider: ((_ index: Int, _ width: CGFloat) -> CGSize?)?
 
+  /// Closure to query item counts for each visual section in layout order.
+  var sectionItemCountsProvider: (() -> [Int])?
+
   /// Additional content inset to apply on top of the calculated inset.
   /// Use this to add extra space for keyboard, headers, footers, etc.
   public var additionalContentInset: UIEdgeInsets = .zero
-
-  /// Size of the header supplementary view (loading indicator at top)
-  public var headerSize: CGSize = .zero
-
-  /// Size of the content header supplementary view (between prepend loader and items)
-  public var headerContentSize: CGSize = .zero
-
-  /// Size of the footer supplementary view (loading indicator at bottom)
-  public var footerSize: CGSize = .zero
-
-  /// Size of the typing indicator supplementary view (between last item and footer)
-  public var typingIndicatorSize: CGSize = .zero
 
   // MARK: - Constants
 
@@ -48,9 +39,20 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   private var itemYPositions: Deque<CGFloat> = []
   private var itemHeights: Deque<CGFloat> = []
   private var lastPreparedBoundsWidth: CGFloat = 0
+  /// Metrics from before a batch mutation. UICollectionView can ask for
+  /// old-count attributes while our data source already exposes the new items.
+  private var batchUpdateMetrics: ItemMetrics?
 
   /// Tracks whether item heights need recalculation due to width being 0 at initial add time.
   private var needsHeightRecalculation: Bool = false
+
+  /// Edge content that should keep its cell height but not expand the scrollable content bounds.
+  var hiddenEdgeContentInset: UIEdgeInsets = .zero {
+    didSet {
+      guard hiddenEdgeContentInset != oldValue else { return }
+      invalidateLayout()
+    }
+  }
 
   // MARK: - UICollectionViewLayout Overrides
 
@@ -91,179 +93,50 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
     let boundsWidth = collectionView?.bounds.width ?? 0
 
-    // Add header supplementary view if visible
-    if headerSize.height > 0 {
-      if let headerAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledSupplementaryView.headerKind,
-        at: IndexPath(item: 0, section: 0)
-      ), headerAttrs.frame.intersects(rect) {
-        result.append(headerAttrs)
-      }
-    }
-
-    // Add content header supplementary view if visible
-    if headerContentSize.height > 0 {
-      if let contentHeaderAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledSupplementaryView.contentHeaderKind,
-        at: IndexPath(item: 0, section: 0)
-      ), contentHeaderAttrs.frame.intersects(rect) {
-        result.append(contentHeaderAttrs)
-      }
-    }
+    let metrics = activeItemMetrics()
+    let itemCount = metrics.count
 
     // Add cell items
-    if !itemYPositions.isEmpty {
+    if itemCount > 0 {
       // Binary search for first visible item
-      let firstIndex = findFirstVisibleIndex(in: rect)
+      let firstIndex = findFirstVisibleIndex(in: rect, metrics: metrics)
 
-      if firstIndex < itemYPositions.count {
-        for index in firstIndex..<itemYPositions.count {
-          let y = itemYPositions[index]
+      if firstIndex < itemCount {
+        for index in firstIndex..<itemCount {
+          let y = metrics.yPositions[index]
 
           // Stop if we're past the visible rect
           if y > rect.maxY {
             break
           }
 
-          let height = itemHeights[index]
+          let height = metrics.heights[index]
           let frame = CGRect(x: 0, y: y, width: boundsWidth, height: height)
 
           if frame.intersects(rect) {
-            let indexPath = IndexPath(item: index, section: 0)
-            let attributes = getOrCreateAttributes(for: indexPath, frame: frame)
-            result.append(attributes)
+            if let indexPath = indexPath(forLinearIndex: index, in: metrics) {
+              let attributes = getOrCreateAttributes(for: indexPath, frame: frame)
+              result.append(attributes)
+            }
           }
         }
-      }
-    }
-
-    // Add typing indicator supplementary view if visible
-    if typingIndicatorSize.height > 0 {
-      if let typingAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledSupplementaryView.typingIndicatorKind,
-        at: IndexPath(item: 0, section: 0)
-      ), typingAttrs.frame.intersects(rect) {
-        result.append(typingAttrs)
-      }
-    }
-
-    // Add footer supplementary view if visible
-    if footerSize.height > 0 {
-      if let footerAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledSupplementaryView.footerKind,
-        at: IndexPath(item: 0, section: 0)
-      ), footerAttrs.frame.intersects(rect) {
-        result.append(footerAttrs)
       }
     }
 
     return result
   }
 
-  public override func layoutAttributesForSupplementaryView(
-    ofKind elementKind: String,
-    at indexPath: IndexPath
-  ) -> UICollectionViewLayoutAttributes? {
-    let boundsWidth = collectionView?.bounds.width ?? 0
-
-    switch elementKind {
-    case TiledSupplementaryView.headerKind:
-      guard headerSize.height > 0 else { return nil }
-      let attrs = UICollectionViewLayoutAttributes(
-        forSupplementaryViewOfKind: elementKind,
-        with: indexPath
-      )
-      // Position header above content header and first item (or at anchorY if empty)
-      let topY = itemYPositions.first ?? anchorY
-      attrs.frame = CGRect(
-        x: 0,
-        y: topY - headerContentSize.height - headerSize.height,
-        width: boundsWidth,
-        height: headerSize.height
-      )
-      return attrs
-
-    case TiledSupplementaryView.contentHeaderKind:
-      guard headerContentSize.height > 0 else { return nil }
-      let attrs = UICollectionViewLayoutAttributes(
-        forSupplementaryViewOfKind: elementKind,
-        with: indexPath
-      )
-      // Position content header above first item (or at anchorY if empty)
-      let topY = itemYPositions.first ?? anchorY
-      attrs.frame = CGRect(
-        x: 0,
-        y: topY - headerContentSize.height,
-        width: boundsWidth,
-        height: headerContentSize.height
-      )
-      return attrs
-
-    case TiledSupplementaryView.typingIndicatorKind:
-      guard typingIndicatorSize.height > 0 else { return nil }
-      let attrs = UICollectionViewLayoutAttributes(
-        forSupplementaryViewOfKind: elementKind,
-        with: indexPath
-      )
-      // Position typing indicator below last item (or at anchorY if empty)
-      let bottomY: CGFloat
-      if let lastY = itemYPositions.last, let lastH = itemHeights.last {
-        bottomY = lastY + lastH
-      } else {
-        bottomY = anchorY
-      }
-      attrs.frame = CGRect(
-        x: 0,
-        y: bottomY,
-        width: boundsWidth,
-        height: typingIndicatorSize.height
-      )
-      return attrs
-
-    case TiledSupplementaryView.footerKind:
-      guard footerSize.height > 0 else { return nil }
-      let attrs = UICollectionViewLayoutAttributes(
-        forSupplementaryViewOfKind: elementKind,
-        with: indexPath
-      )
-      // Position footer below typing indicator (or last item, or anchorY if empty)
-      var bottomY: CGFloat
-      if let lastY = itemYPositions.last, let lastH = itemHeights.last {
-        bottomY = lastY + lastH
-      } else {
-        bottomY = anchorY
-      }
-      // Add typing indicator height if visible
-      if typingIndicatorSize.height > 0 {
-        bottomY += typingIndicatorSize.height
-      }
-      attrs.frame = CGRect(
-        x: 0,
-        y: bottomY,
-        width: boundsWidth,
-        height: footerSize.height
-      )
-      return attrs
-
-    default:
-      return nil
-    }
-  }
-
   public override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-    let index = indexPath.item
+    let metrics = activeItemMetrics()
 
-    // Return frameless attributes for out-of-bounds indices to avoid UICollectionView crashes
-    guard index >= 0, index < itemYPositions.count else {
-      return UICollectionViewLayoutAttributes(forCellWith: indexPath)
-    }
+    guard let index = linearIndex(for: indexPath, in: metrics) else { return nil }
 
     let boundsWidth = collectionView?.bounds.width ?? 0
     let frame = CGRect(
       x: 0,
-      y: itemYPositions[index],
+      y: metrics.yPositions[index],
       width: boundsWidth,
-      height: itemHeights[index]
+      height: metrics.heights[index]
     )
 
     return getOrCreateAttributes(for: indexPath, frame: frame)
@@ -271,6 +144,12 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   /// Gets cached attributes or creates new ones (IGListKit-style on-demand caching).
   private func getOrCreateAttributes(for indexPath: IndexPath, frame: CGRect) -> UICollectionViewLayoutAttributes {
+    if batchUpdateMetrics != nil {
+      let attributes = UICollectionViewLayoutAttributes(forCellWith: indexPath)
+      attributes.frame = frame
+      return attributes
+    }
+
     if let cached = attributesCache[indexPath] {
       // Update frame in case position changed
       cached.frame = frame
@@ -303,36 +182,11 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
     let newHeight = preferredAttributes.frame.size.height
 
-    switch preferredAttributes.representedElementCategory {
-    case .cell:
-      let index = preferredAttributes.indexPath.item
-      if index < itemHeights.count {
+    if preferredAttributes.representedElementCategory == .cell {
+      if let index = linearIndex(for: preferredAttributes.indexPath, in: currentItemMetrics()),
+         index < itemHeights.count {
         updateItemHeight(at: index, newHeight: newHeight)
       }
-
-    case .supplementaryView:
-      let newSize = CGSize(
-        width: preferredAttributes.frame.size.width,
-        height: newHeight
-      )
-      switch preferredAttributes.representedElementKind {
-      case TiledSupplementaryView.contentHeaderKind:
-        headerContentSize = newSize
-      case TiledSupplementaryView.headerKind:
-        headerSize = newSize
-      case TiledSupplementaryView.footerKind:
-        footerSize = newSize
-      case TiledSupplementaryView.typingIndicatorKind:
-        typingIndicatorSize = newSize
-      default:
-        break
-      }
-
-    case .decorationView:
-      break
-
-    @unknown default:
-      break
     }
 
     return context
@@ -382,6 +236,45 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     logCapacity(operation: "prependItems")
   }
 
+  func insertItemsBeforeKeepingTrailingPositions(count: Int, at index: Int) {
+    guard count > 0 else { return }
+
+    let width = collectionView?.bounds.width ?? 0
+    let insertionIndex = max(0, min(index, itemYPositions.count))
+
+    if width == 0 {
+      needsHeightRecalculation = true
+    }
+
+    let heights = (0..<count).map { offset in
+      itemSizeProvider?(insertionIndex + offset, width)?.height ?? estimatedHeight
+    }
+    let totalInsertedHeight = heights.reduce(0, +)
+
+    let insertionEndY: CGFloat
+    if insertionIndex < itemYPositions.count {
+      insertionEndY = itemYPositions[insertionIndex]
+    } else if let lastY = itemYPositions.last, let lastHeight = itemHeights.last {
+      insertionEndY = lastY + lastHeight
+    } else {
+      insertionEndY = anchorY
+    }
+
+    for i in 0..<insertionIndex {
+      itemYPositions[i] -= totalInsertedHeight
+    }
+
+    var currentY = insertionEndY - totalInsertedHeight
+    for (offset, height) in heights.enumerated() {
+      itemYPositions.insert(currentY, at: insertionIndex + offset)
+      itemHeights.insert(height, at: insertionIndex + offset)
+      currentY += height
+    }
+
+    invalidateAttributesCache()
+    logCapacity(operation: "insertItemsBeforeKeepingTrailingPositions")
+  }
+
   public func insertItems(count: Int, at index: Int) {
     let width = collectionView?.bounds.width ?? 0
 
@@ -416,6 +309,27 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     invalidateAttributesCache()
   }
 
+  func removeItemsKeepingTrailingPositions(at indices: [Int]) {
+    guard !indices.isEmpty else { return }
+
+    let sortedIndices = indices.sorted(by: >)
+
+    for index in sortedIndices {
+      guard index >= 0, index < itemYPositions.count else { continue }
+
+      let removedHeight = itemHeights[index]
+
+      itemYPositions.remove(at: index)
+      itemHeights.remove(at: index)
+
+      for i in 0..<index {
+        itemYPositions[i] += removedHeight
+      }
+    }
+
+    invalidateAttributesCache()
+  }
+
   public func removeItems(at indices: [Int]) {
     guard !indices.isEmpty else { return }
 
@@ -447,6 +361,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     invalidateAttributesCache()
   }
 
+  func beginBatchUpdates() {
+    batchUpdateMetrics = currentItemMetrics()
+  }
+
+  func endBatchUpdates() {
+    batchUpdateMetrics = nil
+    invalidateLayout()
+  }
+
   /// Invalidates the attributes cache. Call when IndexPaths change.
   private func invalidateAttributesCache() {
     attributesCache.removeAll(keepingCapacity: true)
@@ -457,6 +380,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
     let oldHeight = itemHeights[index]
     let heightDiff = newHeight - oldHeight
+    guard heightDiff != 0 else { return }
 
     itemHeights[index] = newHeight
 
@@ -464,6 +388,25 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     for i in (index + 1)..<itemYPositions.count {
       itemYPositions[i] += heightDiff
     }
+
+    invalidateAttributesCache()
+  }
+
+  func updateItemHeightKeepingTrailingPositions(at index: Int, newHeight: CGFloat) {
+    guard index >= 0, index < itemHeights.count else { return }
+
+    let oldHeight = itemHeights[index]
+    let heightDiff = newHeight - oldHeight
+    guard heightDiff != 0 else { return }
+
+    itemHeights[index] = newHeight
+    itemYPositions[index] -= heightDiff
+
+    for i in 0..<index {
+      itemYPositions[i] -= heightDiff
+    }
+
+    invalidateAttributesCache()
   }
 
   // MARK: - Private Helpers
@@ -490,13 +433,13 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// Items before this index are completely above the visible area.
   ///
   /// Complexity: O(log n) instead of O(n) linear search.
-  private func findFirstVisibleIndex(in rect: CGRect) -> Int {
+  private func findFirstVisibleIndex(in rect: CGRect, metrics: ItemMetrics) -> Int {
     var low = 0
-    var high = itemYPositions.count
+    var high = metrics.count
 
     while low < high {
       let mid = (low + high) / 2
-      let itemBottom = itemYPositions[mid] + itemHeights[mid]
+      let itemBottom = metrics.yPositions[mid] + metrics.heights[mid]
 
       if itemBottom < rect.minY {
         // Item is completely above visible area, search in right half
@@ -510,15 +453,95 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     return low
   }
 
-  private func contentBounds() -> (top: CGFloat, bottom: CGFloat)? {
-    guard let firstY = itemYPositions.first,
-          let lastY = itemYPositions.last,
-          let lastHeight = itemHeights.last else { return nil }
+  private struct ItemMetrics {
+    var yPositions: Deque<CGFloat>
+    var heights: Deque<CGFloat>
+    var sectionItemCounts: [Int]
+
+    var count: Int {
+      min(yPositions.count, heights.count)
+    }
+  }
+
+  private func currentItemMetrics() -> ItemMetrics {
+    ItemMetrics(
+      yPositions: itemYPositions,
+      heights: itemHeights,
+      sectionItemCounts: currentSectionItemCounts()
+    )
+  }
+
+  private func activeItemMetrics() -> ItemMetrics {
+    let currentMetrics = currentItemMetrics()
+
+    guard let batchUpdateMetrics,
+          let collectionView,
+          collectionView.numberOfSections > 0 else {
+      return currentMetrics
+    }
+
+    if observedItemCount(in: collectionView) == batchUpdateMetrics.count {
+      return batchUpdateMetrics
+    } else {
+      return currentMetrics
+    }
+  }
+
+  private func currentSectionItemCounts() -> [Int] {
+    let counts = sectionItemCountsProvider?() ?? [itemYPositions.count]
+    guard counts.reduce(0, +) == itemYPositions.count else {
+      return [itemYPositions.count]
+    }
+    return counts
+  }
+
+  private func observedItemCount(in collectionView: UICollectionView) -> Int {
+    guard collectionView.numberOfSections > 0 else { return 0 }
+    return (0..<collectionView.numberOfSections).reduce(0) { partialResult, section in
+      partialResult + collectionView.numberOfItems(inSection: section)
+    }
+  }
+
+  private func linearIndex(for indexPath: IndexPath, in metrics: ItemMetrics) -> Int? {
+    guard indexPath.section >= 0,
+          indexPath.section < metrics.sectionItemCounts.count else {
+      return nil
+    }
+
+    let itemCount = metrics.sectionItemCounts[indexPath.section]
+    guard indexPath.item >= 0, indexPath.item < itemCount else {
+      return nil
+    }
+
+    let precedingCount = metrics.sectionItemCounts[..<indexPath.section].reduce(0, +)
+    let index = precedingCount + indexPath.item
+    guard index < metrics.count else { return nil }
+    return index
+  }
+
+  private func indexPath(forLinearIndex linearIndex: Int, in metrics: ItemMetrics) -> IndexPath? {
+    guard linearIndex >= 0, linearIndex < metrics.count else { return nil }
+
+    var remainingIndex = linearIndex
+    for (section, itemCount) in metrics.sectionItemCounts.enumerated() {
+      if remainingIndex < itemCount {
+        return IndexPath(item: remainingIndex, section: section)
+      }
+      remainingIndex -= itemCount
+    }
+
+    return nil
+  }
+
+  private func contentBounds(in metrics: ItemMetrics) -> (top: CGFloat, bottom: CGFloat)? {
+    guard let firstY = metrics.yPositions.first,
+          let lastY = metrics.yPositions.last,
+          let lastHeight = metrics.heights.last else { return nil }
     return (firstY, lastY + lastHeight)
   }
 
   private func logCapacity(operation: String) {
-    guard let bounds = contentBounds() else { return }
+    guard let bounds = contentBounds(in: currentItemMetrics()) else { return }
 
     let topPercent = (bounds.top / anchorY) * 100
     let bottomPercent = ((virtualContentHeight - bounds.bottom) / (virtualContentHeight - anchorY)) * 100
@@ -543,7 +566,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// Returns debug information about remaining scroll capacity.
   /// Useful for monitoring how much virtual space remains for prepend/append operations.
   public var debugCapacityInfo: DebugCapacityInfo? {
-    guard let bounds = contentBounds() else { return nil }
+    guard let bounds = contentBounds(in: currentItemMetrics()) else { return nil }
     return DebugCapacityInfo(
       topCapacity: bounds.top,
       bottomCapacity: virtualContentHeight - bounds.bottom,
@@ -553,27 +576,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   }
 
   private func calculateContentInset() -> UIEdgeInsets {
-    guard let bounds = contentBounds() else {
+    guard let bounds = contentBounds(in: activeItemMetrics()) else {
       // Empty list: treat anchorY as bottom position to appear "at bottom"
-      // Account for header/footer/typingIndicator/contentHeader if present
-      var topY = anchorY
-      var bottomY = anchorY
-
-      if headerContentSize.height > 0 {
-        topY -= headerContentSize.height
-      }
-      if headerSize.height > 0 {
-        topY -= headerSize.height
-      }
-      if typingIndicatorSize.height > 0 {
-        bottomY += typingIndicatorSize.height
-      }
-      if footerSize.height > 0 {
-        bottomY += footerSize.height
-      }
-
-      let topInset = topY
-      let bottomInset = virtualContentHeight - bottomY
+      let topInset = anchorY + hiddenEdgeContentInset.top
+      let bottomInset = virtualContentHeight - (anchorY - hiddenEdgeContentInset.bottom)
       return UIEdgeInsets(
         top: -topInset + additionalContentInset.top,
         left: additionalContentInset.left,
@@ -582,25 +588,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
     }
 
-    // Adjust bounds to include header/footer/typingIndicator/contentHeader
-    var topY = bounds.top
-    var bottomY = bounds.bottom
-
-    if headerContentSize.height > 0 {
-      topY -= headerContentSize.height
-    }
-    if headerSize.height > 0 {
-      topY -= headerSize.height
-    }
-    if typingIndicatorSize.height > 0 {
-      bottomY += typingIndicatorSize.height
-    }
-    if footerSize.height > 0 {
-      bottomY += footerSize.height
-    }
-
-    let topInset = topY
-    let bottomInset = virtualContentHeight - bottomY
+    let topInset = bounds.top + hiddenEdgeContentInset.top
+    let bottomInset = virtualContentHeight - (bounds.bottom - hiddenEdgeContentInset.bottom)
 
     return UIEdgeInsets(
       top: -topInset + additionalContentInset.top,
