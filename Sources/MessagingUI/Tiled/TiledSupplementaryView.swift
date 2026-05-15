@@ -9,104 +9,70 @@ import SwiftUI
 import UIKit
 import ObjectiveC
 
-extension EnvironmentValues {
-
-  /// An action that triggers the hosting view to re-measure its intrinsic content size.
-  ///
-  /// Call this from within supplementary view content (header, footer, typing indicator, etc.)
-  /// when a `@State` change causes the view's height to change.
-  /// This is normally handled automatically by `TiledSupplementaryView`, but remains available
-  /// as a fallback for custom views that do not invalidate their intrinsic content size.
-  ///
-  /// ## Why this is needed (workaround)
-  ///
-  /// Although `UIHostingController.sizingOptions = .intrinsicContentSize` ensures the hosting view's
-  /// intrinsic content size stays in sync with SwiftUI content, **UICollectionView's self-sizing pipeline
-  /// is pull-based** — it only calls `preferredLayoutAttributesFitting(_:)` during initial display or
-  /// explicit layout invalidation. A subview's intrinsic content size change alone does not trigger
-  /// the collection view to re-query the preferred size.
-  ///
-  /// `TiledSupplementaryView` bridges this gap automatically by observing intrinsic size invalidations
-  /// from the hosted SwiftUI view and invalidating the supplementary view itself. Calling
-  /// `updateSelfSizing()` manually runs the same final invalidation step.
-  ///
-  /// ## Pipeline
-  ///
-  /// 1. Hosted SwiftUI content invalidates its intrinsic content size.
-  /// 2. UIKit triggers `preferredLayoutAttributesFitting(_:)` to compute the new size.
-  /// 3. The layout's `invalidationContext(forPreferredLayoutAttributes:withOriginalAttributes:)` updates
-  ///    the corresponding size property (e.g., `headerContentSize`) and invalidates the layout.
-  ///
-  /// ## Example
-  ///
-  /// ```swift
-  /// struct ExpandableHeader: View {
-  ///   @State private var isExpanded = false
-  ///
-  ///   var body: some View {
-  ///     VStack {
-  ///       Button(isExpanded ? "Show Less" : "Show More") {
-  ///         isExpanded.toggle()
-  ///       }
-  ///       if isExpanded {
-  ///         Text("Additional content here")
-  ///       }
-  ///     }
-  ///   }
-  /// }
-  /// ```
-  ///
-  /// - Note: This is a no-op by default. It is only wired up when the view is hosted
-  ///   inside a ``TiledSupplementaryView``.
-  @Entry public var updateSelfSizing: () -> Void = {}
-}
-
-/// Generic supplementary view for hosting SwiftUI content in collection view supplementary positions.
-final class TiledSupplementaryView: UICollectionReusableView {
+enum TiledSupplementaryViewKind {
 
   static let headerKind = "TiledLoadingIndicatorHeader"
   static let footerKind = "TiledLoadingIndicatorFooter"
   static let typingIndicatorKind = "TiledTypingIndicator"
   static let contentHeaderKind = "TiledContentHeader"
-  static let reuseIdentifier = "TiledSupplementaryView"
+}
 
-  private var hostingController: UIHostingController<AnyView>?
+@MainActor
+private protocol TiledSupplementaryIntrinsicContentSizeInvalidationTarget: UICollectionReusableView {
+
+  func didInvalidateIntrinsicContentSize(in descendant: UIView)
+}
+
+private struct TiledSupplementaryHostingContent<Content: View>: View {
+
+  let content: Content
+
+  var body: some View {
+    content
+  }
+}
+
+/// Generic supplementary view for hosting SwiftUI content in collection view supplementary positions.
+final class TiledSupplementaryView<Content: View>: UICollectionReusableView, TiledSupplementaryIntrinsicContentSizeInvalidationTarget {
+
+  static func reuseIdentifier(for kind: String) -> String {
+    "\(String(reflecting: Self.self)):\(kind)"
+  }
+
+  private var hostingController: UIHostingController<TiledSupplementaryHostingContent<Content>>?
   private var isSchedulingIntrinsicContentSizeInvalidationUpdate = false
   private var isUpdatingForIntrinsicContentSizeInvalidation = false
-  
-  /// Override safeAreaInsets to return zero. This prevents UIHostingConfiguration from being affected by safe area changes when contentInsetAdjustmentBehavior = .never is used on the collection view.
-  override var safeAreaInsets: UIEdgeInsets {
-    .zero
-  }
+  private var currentLayoutAttributes: UICollectionViewLayoutAttributes?
 
-  func configure<Content: View>(with content: Content) {
-    // Remove existing hosting controller if present
-    hostingController?.view.removeFromSuperview()
-    hostingController?.removeFromParent()
+  func configure(with content: Content) {
+    let hostingContent = TiledSupplementaryHostingContent(
+      content: content
+    )
 
-    let hosting = UIHostingController(rootView: AnyView(content.environment(\.updateSelfSizing) { [weak self] in
-      guard let self = self else { return }
-      // Trigger layout update when content changes
-      self.invalidateIntrinsicContentSize()
-    }))
-    hosting.view.translatesAutoresizingMaskIntoConstraints = false
-    hosting.sizingOptions = .intrinsicContentSize
-    hosting.view.backgroundColor = .clear
-    hosting.safeAreaRegions = []
-    TiledSupplementaryIntrinsicContentSizeInvalidationObserver.install(on: hosting.view)
+    if let hostingController {
+      hostingController.rootView = hostingContent
+      return
+    }
 
-    addSubview(hosting.view)
+    let hostingController = UIHostingController(rootView: hostingContent)
+    hostingController.sizingOptions = .intrinsicContentSize
+    hostingController.safeAreaRegions = []
+    hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+    hostingController.view.backgroundColor = .clear
+    TiledSupplementaryIntrinsicContentSizeInvalidationObserver.install(on: hostingController.view)
+
+    addSubview(hostingController.view)
     NSLayoutConstraint.activate([
-      hosting.view.topAnchor.constraint(equalTo: topAnchor),
-      hosting.view.leadingAnchor.constraint(equalTo: leadingAnchor),
-      hosting.view.trailingAnchor.constraint(equalTo: trailingAnchor),
-      hosting.view.bottomAnchor.constraint(equalTo: bottomAnchor),
+      hostingController.view.topAnchor.constraint(equalTo: topAnchor),
+      hostingController.view.leadingAnchor.constraint(equalTo: leadingAnchor),
+      hostingController.view.trailingAnchor.constraint(equalTo: trailingAnchor),
+      hostingController.view.bottomAnchor.constraint(equalTo: bottomAnchor),
     ])
 
-    hostingController = hosting
+    self.hostingController = hostingController
   }
 
-  fileprivate func didInvalidateIntrinsicContentSize(in descendant: UIView) {
+  func didInvalidateIntrinsicContentSize(in descendant: UIView) {
     guard let hostedView = hostingController?.view else { return }
     guard descendant === hostedView || descendant.isDescendant(of: hostedView) else { return }
     guard isUpdatingForIntrinsicContentSizeInvalidation == false else { return }
@@ -125,16 +91,21 @@ final class TiledSupplementaryView: UICollectionReusableView {
       guard self.hostingController?.view.superview === self else { return }
 
       self.isUpdatingForIntrinsicContentSizeInvalidation = true
-      self.invalidateIntrinsicContentSize()
+      self.invalidateOwnSupplementaryLayout()
       self.isUpdatingForIntrinsicContentSizeInvalidation = false
     }
   }
 
   override func prepareForReuse() {
     super.prepareForReuse()
-    hostingController?.view.removeFromSuperview()
-    hostingController?.removeFromParent()
-    hostingController = nil
+    isSchedulingIntrinsicContentSizeInvalidationUpdate = false
+    isUpdatingForIntrinsicContentSizeInvalidation = false
+    currentLayoutAttributes = nil
+  }
+
+  override func apply(_ layoutAttributes: UICollectionViewLayoutAttributes) {
+    super.apply(layoutAttributes)
+    currentLayoutAttributes = layoutAttributes.copy() as? UICollectionViewLayoutAttributes
   }
 
   override func preferredLayoutAttributesFitting(
@@ -159,6 +130,50 @@ final class TiledSupplementaryView: UICollectionReusableView {
 
     attributes.frame.size.height = size.height
     return attributes
+  }
+
+  private func invalidateOwnSupplementaryLayout() {
+    guard
+      let collectionView,
+      let layout = collectionView.collectionViewLayout as? TiledCollectionViewLayout,
+      let originalAttributes = currentLayoutAttributes,
+      originalAttributes.representedElementCategory == .supplementaryView,
+      let elementKind = originalAttributes.representedElementKind
+    else {
+      return
+    }
+
+    let preferredAttributes = preferredLayoutAttributesFitting(originalAttributes)
+    guard layout.shouldInvalidateLayout(
+      forPreferredLayoutAttributes: preferredAttributes,
+      withOriginalAttributes: originalAttributes
+    ) else {
+      return
+    }
+       
+    let context = layout.invalidationContext(
+      forPreferredLayoutAttributes: preferredAttributes,
+      withOriginalAttributes: originalAttributes
+    )
+    context.invalidateSupplementaryElements(
+      ofKind: elementKind,
+      at: [originalAttributes.indexPath]
+    )
+    layout.invalidateLayout(with: context)
+  }
+
+  private var collectionView: UICollectionView? {
+    var currentView = superview
+
+    while let view = currentView {
+      if let collectionView = view as? UICollectionView {
+        return collectionView
+      }
+
+      currentView = view.superview
+    }
+
+    return nil
   }
 }
 
@@ -233,7 +248,7 @@ private extension UIView {
     var currentView = superview
 
     while let view = currentView {
-      if let supplementaryView = view as? TiledSupplementaryView {
+      if let supplementaryView = view as? TiledSupplementaryIntrinsicContentSizeInvalidationTarget {
         supplementaryView.didInvalidateIntrinsicContentSize(in: self)
         return
       }
