@@ -46,6 +46,16 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// Tracks whether item heights need recalculation due to width being 0 at initial add time.
   private var needsHeightRecalculation: Bool = false
 
+  /// Structural update to apply from `prepare(forCollectionViewUpdates:)`.
+  enum PendingUpdate {
+    case insertItems(count: Int, at: Int)
+    case insertItemsBeforeKeepingTrailingPositions(count: Int, at: Int)
+    case removeItems(at: [Int])
+    case removeItemsKeepingTrailingPositions(at: [Int])
+  }
+
+  private var pendingUpdate: PendingUpdate?
+
   /// Edge content that should keep its cell height but not expand the scrollable content bounds.
   var hiddenEdgeContentInset: UIEdgeInsets = .zero {
     didSet {
@@ -192,6 +202,31 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     return context
   }
 
+  // MARK: - Batch Update Hooks
+
+  func enqueuePendingUpdate(_ update: PendingUpdate) {
+    assert(pendingUpdate == nil, "TiledCollectionViewLayout only supports one pending structural update per batch.")
+    pendingUpdate = update
+  }
+
+  public override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
+    super.prepare(forCollectionViewUpdates: updateItems)
+
+    guard let update = pendingUpdate else { return }
+    pendingUpdate = nil
+
+    applyPendingUpdate(update)
+
+    if let collectionView {
+      collectionView.contentInset = calculateContentInset(using: currentItemMetrics())
+    }
+  }
+
+  public override func finalizeCollectionViewUpdates() {
+    super.finalizeCollectionViewUpdates()
+    pendingUpdate = nil
+  }
+
   // MARK: - Public Item Management API
 
   public func appendItems(count: Int, startingIndex: Int) {
@@ -221,6 +256,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   public func prependItems(count: Int) {
     let width = collectionView?.bounds.width ?? 0
+
+    if width == 0 {
+      needsHeightRecalculation = true
+    }
 
     // Process in reverse order for prepend (to insert from index 0 sequentially)
     for i in (0..<count).reversed() {
@@ -277,6 +316,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   public func insertItems(count: Int, at index: Int) {
     let width = collectionView?.bounds.width ?? 0
+
+    if width == 0 {
+      needsHeightRecalculation = true
+    }
 
     // Calculate the starting Y position for inserted items
     let startY: CGFloat
@@ -480,7 +523,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       return currentMetrics
     }
 
-    if observedItemCount(in: collectionView) == batchUpdateMetrics.count {
+    if observedSectionItemCounts(in: collectionView) == batchUpdateMetrics.sectionItemCounts {
       return batchUpdateMetrics
     } else {
       return currentMetrics
@@ -495,10 +538,23 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     return counts
   }
 
-  private func observedItemCount(in collectionView: UICollectionView) -> Int {
-    guard collectionView.numberOfSections > 0 else { return 0 }
-    return (0..<collectionView.numberOfSections).reduce(0) { partialResult, section in
-      partialResult + collectionView.numberOfItems(inSection: section)
+  private func observedSectionItemCounts(in collectionView: UICollectionView) -> [Int] {
+    guard collectionView.numberOfSections > 0 else { return [] }
+    return (0..<collectionView.numberOfSections).map { section in
+      collectionView.numberOfItems(inSection: section)
+    }
+  }
+
+  private func applyPendingUpdate(_ update: PendingUpdate) {
+    switch update {
+    case .insertItems(let count, let index):
+      insertItems(count: count, at: index)
+    case .insertItemsBeforeKeepingTrailingPositions(let count, let index):
+      insertItemsBeforeKeepingTrailingPositions(count: count, at: index)
+    case .removeItems(let indices):
+      removeItems(at: indices)
+    case .removeItemsKeepingTrailingPositions(let indices):
+      removeItemsKeepingTrailingPositions(at: indices)
     }
   }
 
@@ -575,8 +631,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     )
   }
 
-  private func calculateContentInset() -> UIEdgeInsets {
-    guard let bounds = contentBounds(in: activeItemMetrics()) else {
+  private func calculateContentInset(using metrics: ItemMetrics? = nil) -> UIEdgeInsets {
+    let metrics = metrics ?? activeItemMetrics()
+
+    guard let bounds = contentBounds(in: metrics) else {
       // Empty list: treat anchorY as bottom position to appear "at bottom"
       let topInset = anchorY + hiddenEdgeContentInset.top
       let bottomInset = virtualContentHeight - (anchorY - hiddenEdgeContentInset.bottom)

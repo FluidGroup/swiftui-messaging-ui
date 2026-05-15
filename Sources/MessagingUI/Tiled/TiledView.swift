@@ -66,6 +66,10 @@ private struct EdgeLoadTrigger<Indicator: View>: ~Copyable {
   /// Generation token used to cancel deferred indicator presentation.
   var indicatorVisibilityGeneration: UInt = 0
 
+  /// Pending work used to move indicator dismissal after item insertion settles.
+  var indicatorHideWorkItem: DispatchWorkItem?
+  var pendingIndicatorHideGeneration: UInt?
+
   /// Loader configuration
   var loader: Loader<Indicator>?
 
@@ -84,11 +88,7 @@ private struct EdgeLoadTrigger<Indicator: View>: ~Copyable {
 
   /// Whether the loader indicator should be visible and participate in scrollable content bounds.
   var shouldShowIndicator: Bool {
-    guard let loader else { return false }
-    if loader.isProcessing != nil {
-      return isLoading
-    }
-    return isIndicatorVisible
+    loader != nil && isIndicatorVisible
   }
 }
 
@@ -366,6 +366,7 @@ final class TiledUIView<
   /// Edge load triggers
   private var prependTrigger = EdgeLoadTrigger<PrependLoadingView>()
   private var appendTrigger = EdgeLoadTrigger<AppendLoadingView>()
+  private let loadingIndicatorHideDelay: TimeInterval = 0.12
 
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
@@ -427,12 +428,14 @@ final class TiledUIView<
     prependTrigger.loader = prepend
     appendTrigger.loader = append
     if prepend == nil {
-      prependTrigger.indicatorVisibilityGeneration &+= 1
-      prependTrigger.isIndicatorVisible = false
+      resetPrependLoadingIndicatorVisibility()
+    } else {
+      synchronizePrependLoadingIndicatorVisibility()
     }
     if append == nil {
-      appendTrigger.indicatorVisibilityGeneration &+= 1
-      appendTrigger.isIndicatorVisible = false
+      resetAppendLoadingIndicatorVisibility()
+    } else {
+      synchronizeAppendLoadingIndicatorVisibility()
     }
 
     updateLoadingIndicatorVisibility()
@@ -880,9 +883,9 @@ final class TiledUIView<
       tiledLayout.beginBatchUpdates()
       displayItems.remove(at: index)
       if keepingTrailingPositions {
-        tiledLayout.removeItemsKeepingTrailingPositions(at: [index])
+        tiledLayout.enqueuePendingUpdate(.removeItemsKeepingTrailingPositions(at: [index]))
       } else {
-        tiledLayout.removeItems(at: [index])
+        tiledLayout.enqueuePendingUpdate(.removeItems(at: [index]))
       }
 
       UIView.performWithoutAnimation {
@@ -905,9 +908,9 @@ final class TiledUIView<
       tiledLayout.beginBatchUpdates()
       displayItems.insert(displayItem, at: index)
       if keepingTrailingPositions {
-        tiledLayout.insertItemsBeforeKeepingTrailingPositions(count: 1, at: index)
+        tiledLayout.enqueuePendingUpdate(.insertItemsBeforeKeepingTrailingPositions(count: 1, at: index))
       } else {
-        tiledLayout.insertItems(count: 1, at: index)
+        tiledLayout.enqueuePendingUpdate(.insertItems(count: 1, at: index))
       }
 
       UIView.performWithoutAnimation {
@@ -1015,6 +1018,7 @@ final class TiledUIView<
         recursive_drainItemChanges(to: queuedItems)
       } else {
         isApplyingItemChanges = false
+        finishPendingLoadingIndicatorHides()
       }
       return
     }
@@ -1080,7 +1084,9 @@ final class TiledUIView<
       tiledLayout.beginBatchUpdates()
       items.insert(contentsOf: newItems, at: 0)
       displayItems.insert(contentsOf: displayItemsToInsert, at: displayIndex)
-      tiledLayout.insertItemsBeforeKeepingTrailingPositions(count: newItems.count, at: displayIndex)
+      tiledLayout.enqueuePendingUpdate(
+        .insertItemsBeforeKeepingTrailingPositions(count: newItems.count, at: displayIndex)
+      )
 
       let indexPaths = (0..<newItems.count).map {
         IndexPath(item: $0, section: DisplaySection.messages.rawValue)
@@ -1108,7 +1114,7 @@ final class TiledUIView<
       tiledLayout.beginBatchUpdates()
       items.append(contentsOf: newItems)
       displayItems.insert(contentsOf: displayItemsToInsert, at: displayIndex)
-      tiledLayout.insertItems(count: newItems.count, at: displayIndex)
+      tiledLayout.enqueuePendingUpdate(.insertItems(count: newItems.count, at: displayIndex))
 
       let indexPaths = (startingIndex..<startingIndex + newItems.count).map {
         IndexPath(item: $0, section: DisplaySection.messages.rawValue)
@@ -1143,7 +1149,7 @@ final class TiledUIView<
         items.insert(item, at: index + offset)
       }
       displayItems.insert(contentsOf: displayItemsToInsert, at: displayIndex)
-      tiledLayout.insertItems(count: newItems.count, at: displayIndex)
+      tiledLayout.enqueuePendingUpdate(.insertItems(count: newItems.count, at: displayIndex))
 
       let indexPaths = (index..<index + newItems.count).map {
         IndexPath(item: $0, section: DisplaySection.messages.rawValue)
@@ -1204,7 +1210,7 @@ final class TiledUIView<
       for displayIndex in displayIndicesToRemove.sorted(by: >) {
         displayItems.remove(at: displayIndex)
       }
-      tiledLayout.removeItems(at: displayIndicesToRemove)
+      tiledLayout.enqueuePendingUpdate(.removeItems(at: displayIndicesToRemove))
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
@@ -1348,13 +1354,18 @@ final class TiledUIView<
     case .async(let perform):
       prependTrigger.indicatorVisibilityGeneration &+= 1
       let generation = prependTrigger.indicatorVisibilityGeneration
-      prependTrigger.isIndicatorVisible = false
+      prependTrigger.indicatorHideWorkItem?.cancel()
+      prependTrigger.indicatorHideWorkItem = nil
+      prependTrigger.pendingIndicatorHideGeneration = nil
       // task != nil indicates loading state
       prependTrigger.task = Task { @MainActor [weak self] in
         DispatchQueue.main.async { [weak self] in
           guard let self else { return }
           guard self.prependTrigger.indicatorVisibilityGeneration == generation else { return }
           guard self.prependTrigger.isLoading else { return }
+          self.prependTrigger.indicatorHideWorkItem?.cancel()
+          self.prependTrigger.indicatorHideWorkItem = nil
+          self.prependTrigger.pendingIndicatorHideGeneration = nil
           self.prependTrigger.isIndicatorVisible = true
           self.updateLoadingIndicatorVisibility()
         }
@@ -1364,9 +1375,7 @@ final class TiledUIView<
             DispatchQueue.main.async { [weak self] in
               guard let self else { return }
               guard self.prependTrigger.indicatorVisibilityGeneration == generation else { return }
-              self.prependTrigger.indicatorVisibilityGeneration &+= 1
-              self.prependTrigger.isIndicatorVisible = false
-              self.updateLoadingIndicatorVisibility()
+              self.requestPrependLoadingIndicatorHide(generation: generation)
             }
           }
         }
@@ -1385,13 +1394,18 @@ final class TiledUIView<
     case .async(let perform):
       appendTrigger.indicatorVisibilityGeneration &+= 1
       let generation = appendTrigger.indicatorVisibilityGeneration
-      appendTrigger.isIndicatorVisible = false
+      appendTrigger.indicatorHideWorkItem?.cancel()
+      appendTrigger.indicatorHideWorkItem = nil
+      appendTrigger.pendingIndicatorHideGeneration = nil
       // task != nil indicates loading state
       appendTrigger.task = Task { @MainActor [weak self] in
         DispatchQueue.main.async { [weak self] in
           guard let self else { return }
           guard self.appendTrigger.indicatorVisibilityGeneration == generation else { return }
           guard self.appendTrigger.isLoading else { return }
+          self.appendTrigger.indicatorHideWorkItem?.cancel()
+          self.appendTrigger.indicatorHideWorkItem = nil
+          self.appendTrigger.pendingIndicatorHideGeneration = nil
           self.appendTrigger.isIndicatorVisible = true
           self.updateLoadingIndicatorVisibility()
         }
@@ -1401,9 +1415,7 @@ final class TiledUIView<
             DispatchQueue.main.async { [weak self] in
               guard let self else { return }
               guard self.appendTrigger.indicatorVisibilityGeneration == generation else { return }
-              self.appendTrigger.indicatorVisibilityGeneration &+= 1
-              self.appendTrigger.isIndicatorVisible = false
-              self.updateLoadingIndicatorVisibility()
+              self.requestAppendLoadingIndicatorHide(generation: generation)
             }
           }
         }
@@ -1663,6 +1675,113 @@ final class TiledUIView<
   }
 
   // MARK: - Loading Indicator Management
+
+  private func resetPrependLoadingIndicatorVisibility() {
+    prependTrigger.indicatorVisibilityGeneration &+= 1
+    prependTrigger.indicatorHideWorkItem?.cancel()
+    prependTrigger.indicatorHideWorkItem = nil
+    prependTrigger.pendingIndicatorHideGeneration = nil
+    prependTrigger.isIndicatorVisible = false
+  }
+
+  private func resetAppendLoadingIndicatorVisibility() {
+    appendTrigger.indicatorVisibilityGeneration &+= 1
+    appendTrigger.indicatorHideWorkItem?.cancel()
+    appendTrigger.indicatorHideWorkItem = nil
+    appendTrigger.pendingIndicatorHideGeneration = nil
+    appendTrigger.isIndicatorVisible = false
+  }
+
+  private func synchronizePrependLoadingIndicatorVisibility() {
+    guard prependTrigger.loader?.isProcessing != nil else { return }
+
+    if prependTrigger.isLoading {
+      prependTrigger.indicatorHideWorkItem?.cancel()
+      prependTrigger.indicatorHideWorkItem = nil
+      prependTrigger.pendingIndicatorHideGeneration = nil
+      prependTrigger.isIndicatorVisible = true
+    } else if prependTrigger.isIndicatorVisible {
+      requestPrependLoadingIndicatorHide(generation: prependTrigger.indicatorVisibilityGeneration)
+    }
+  }
+
+  private func synchronizeAppendLoadingIndicatorVisibility() {
+    guard appendTrigger.loader?.isProcessing != nil else { return }
+
+    if appendTrigger.isLoading {
+      appendTrigger.indicatorHideWorkItem?.cancel()
+      appendTrigger.indicatorHideWorkItem = nil
+      appendTrigger.pendingIndicatorHideGeneration = nil
+      appendTrigger.isIndicatorVisible = true
+    } else if appendTrigger.isIndicatorVisible {
+      requestAppendLoadingIndicatorHide(generation: appendTrigger.indicatorVisibilityGeneration)
+    }
+  }
+
+  private func requestPrependLoadingIndicatorHide(generation: UInt) {
+    guard prependTrigger.indicatorVisibilityGeneration == generation else { return }
+    guard prependTrigger.loader != nil else { return }
+    guard prependTrigger.pendingIndicatorHideGeneration != generation else { return }
+
+    prependTrigger.indicatorHideWorkItem?.cancel()
+    prependTrigger.pendingIndicatorHideGeneration = generation
+
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.finishPrependLoadingIndicatorHide(generation: generation)
+    }
+    prependTrigger.indicatorHideWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + loadingIndicatorHideDelay, execute: workItem)
+  }
+
+  private func requestAppendLoadingIndicatorHide(generation: UInt) {
+    guard appendTrigger.indicatorVisibilityGeneration == generation else { return }
+    guard appendTrigger.loader != nil else { return }
+    guard appendTrigger.pendingIndicatorHideGeneration != generation else { return }
+
+    appendTrigger.indicatorHideWorkItem?.cancel()
+    appendTrigger.pendingIndicatorHideGeneration = generation
+
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.finishAppendLoadingIndicatorHide(generation: generation)
+    }
+    appendTrigger.indicatorHideWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + loadingIndicatorHideDelay, execute: workItem)
+  }
+
+  private func finishPendingLoadingIndicatorHides() {
+    if let generation = prependTrigger.pendingIndicatorHideGeneration {
+      finishPrependLoadingIndicatorHide(generation: generation)
+    }
+    if let generation = appendTrigger.pendingIndicatorHideGeneration {
+      finishAppendLoadingIndicatorHide(generation: generation)
+    }
+  }
+
+  private func finishPrependLoadingIndicatorHide(generation: UInt) {
+    guard !isApplyingItemChanges else { return }
+    guard prependTrigger.pendingIndicatorHideGeneration == generation else { return }
+    guard prependTrigger.indicatorVisibilityGeneration == generation else { return }
+
+    prependTrigger.indicatorHideWorkItem?.cancel()
+    prependTrigger.indicatorHideWorkItem = nil
+    prependTrigger.pendingIndicatorHideGeneration = nil
+    prependTrigger.indicatorVisibilityGeneration &+= 1
+    prependTrigger.isIndicatorVisible = false
+    updateLoadingIndicatorVisibility()
+  }
+
+  private func finishAppendLoadingIndicatorHide(generation: UInt) {
+    guard !isApplyingItemChanges else { return }
+    guard appendTrigger.pendingIndicatorHideGeneration == generation else { return }
+    guard appendTrigger.indicatorVisibilityGeneration == generation else { return }
+
+    appendTrigger.indicatorHideWorkItem?.cancel()
+    appendTrigger.indicatorHideWorkItem = nil
+    appendTrigger.pendingIndicatorHideGeneration = nil
+    appendTrigger.indicatorVisibilityGeneration &+= 1
+    appendTrigger.isIndicatorVisible = false
+    updateLoadingIndicatorVisibility()
+  }
 
   private func updateLoadingIndicatorVisibility() {
     guard collectionView != nil else { return }
