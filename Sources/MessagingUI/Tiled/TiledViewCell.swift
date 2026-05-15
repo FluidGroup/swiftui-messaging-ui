@@ -28,9 +28,7 @@ final class TiledViewCell<Content: View>: UICollectionViewCell {
   func configure(with content: Content) {
     contentView.alpha = 1
     contentConfiguration = UIHostingConfiguration {
-      content.environment(\.updateSelfSizing) { [weak self] in
-        self?.invalidateIntrinsicContentSize()
-      }
+      content
     }
     .margins(.all, 0)
   }
