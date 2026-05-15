@@ -350,7 +350,13 @@ final class TiledUIView<
     case messages
     case typingIndicator
     case appendLoader
+
+    func indexPath(item: Int = 0) -> IndexPath {
+      IndexPath(item: item, section: rawValue)
+    }
   }
+
+  private typealias PositionPreservation = TiledCollectionViewLayout.PositionPreservation
 
   /// prototype cell for size measurement
   private let itemSizingCell = TiledViewCell<Cell>()
@@ -379,6 +385,8 @@ final class TiledUIView<
   private var isTypingIndicatorIncludedInContentBounds: Bool = false
   private var typingIndicatorRemovalWorkItem: DispatchWorkItem?
   private var typingIndicatorRemovalGeneration: UInt = 0
+  private let typingIndicatorRemovalDelay: TimeInterval = 0.25
+  private let typingIndicatorRemovalAnimationDuration: TimeInterval = 0.55
 
   /// Auto-scroll to bottom on append
   var autoScrollsToBottomOnAppend: Bool = false
@@ -812,32 +820,32 @@ final class TiledUIView<
     switch displayItem {
     case .prependLoader:
       guard displayItems.contains(.prependLoader) else { return nil }
-      return IndexPath(item: 0, section: DisplaySection.prependLoader.rawValue)
+      return DisplaySection.prependLoader.indexPath()
     case .headerContent:
       guard displayItems.contains(.headerContent) else { return nil }
-      return IndexPath(item: 0, section: DisplaySection.headerContent.rawValue)
+      return DisplaySection.headerContent.indexPath()
     case .item(let id):
       guard let itemIndex = items.firstIndex(where: { $0.id == id }) else { return nil }
-      return IndexPath(item: itemIndex, section: DisplaySection.messages.rawValue)
+      return DisplaySection.messages.indexPath(item: itemIndex)
     case .typingIndicator:
       guard displayItems.contains(.typingIndicator) else { return nil }
-      return IndexPath(item: 0, section: DisplaySection.typingIndicator.rawValue)
+      return DisplaySection.typingIndicator.indexPath()
     case .appendLoader:
       guard displayItems.contains(.appendLoader) else { return nil }
-      return IndexPath(item: 0, section: DisplaySection.appendLoader.rawValue)
+      return DisplaySection.appendLoader.indexPath()
     }
   }
 
   private func accessoryIndexPath(for displayItem: DisplayItem) -> IndexPath? {
     switch displayItem {
     case .prependLoader:
-      IndexPath(item: 0, section: DisplaySection.prependLoader.rawValue)
+      DisplaySection.prependLoader.indexPath()
     case .headerContent:
-      IndexPath(item: 0, section: DisplaySection.headerContent.rawValue)
+      DisplaySection.headerContent.indexPath()
     case .typingIndicator:
-      IndexPath(item: 0, section: DisplaySection.typingIndicator.rawValue)
+      DisplaySection.typingIndicator.indexPath()
     case .appendLoader:
-      IndexPath(item: 0, section: DisplaySection.appendLoader.rawValue)
+      DisplaySection.appendLoader.indexPath()
     case .item:
       nil
     }
@@ -862,7 +870,7 @@ final class TiledUIView<
     _ displayItem: DisplayItem,
     visible: Bool,
     insertionIndex: () -> Int,
-    keepingTrailingPositions: Bool,
+    positionPreservation: PositionPreservation,
     beforeUpdate: (() -> Void)? = nil,
     completion: (() -> Void)? = nil
   ) {
@@ -882,11 +890,7 @@ final class TiledUIView<
       primeCollectionViewItemCountForBatchUpdate()
       tiledLayout.beginBatchUpdates()
       displayItems.remove(at: index)
-      if keepingTrailingPositions {
-        tiledLayout.enqueuePendingUpdate(.removeItemsKeepingTrailingPositions(at: [index]))
-      } else {
-        tiledLayout.enqueuePendingUpdate(.removeItems(at: [index]))
-      }
+      tiledLayout.enqueuePendingUpdate(.removeItems(at: [index], preserving: positionPreservation))
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
@@ -907,11 +911,7 @@ final class TiledUIView<
       primeCollectionViewItemCountForBatchUpdate()
       tiledLayout.beginBatchUpdates()
       displayItems.insert(displayItem, at: index)
-      if keepingTrailingPositions {
-        tiledLayout.enqueuePendingUpdate(.insertItemsBeforeKeepingTrailingPositions(count: 1, at: index))
-      } else {
-        tiledLayout.enqueuePendingUpdate(.insertItems(count: 1, at: index))
-      }
+      tiledLayout.enqueuePendingUpdate(.insertItems(count: 1, at: index, preserving: positionPreservation))
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
@@ -933,15 +933,16 @@ final class TiledUIView<
 
   private func remeasureDisplayItem(
     _ displayItem: DisplayItem,
-    keepingTrailingPositions: Bool
+    positionPreservation: PositionPreservation
   ) {
     guard let index = displayItems.firstIndex(of: displayItem) else { return }
 
     let height = measuredHeight(for: displayItem)
-    if keepingTrailingPositions {
-      tiledLayout.updateItemHeightKeepingTrailingPositions(at: index, newHeight: height)
-    } else {
+    switch positionPreservation {
+    case .itemsBeforeMutation:
       tiledLayout.updateItemHeight(at: index, newHeight: height)
+    case .itemsAfterMutation:
+      tiledLayout.updateItemHeightKeepingTrailingPositions(at: index, newHeight: height)
     }
     tiledLayout.invalidateLayout()
   }
@@ -1085,11 +1086,11 @@ final class TiledUIView<
       items.insert(contentsOf: newItems, at: 0)
       displayItems.insert(contentsOf: displayItemsToInsert, at: displayIndex)
       tiledLayout.enqueuePendingUpdate(
-        .insertItemsBeforeKeepingTrailingPositions(count: newItems.count, at: displayIndex)
+        .insertItems(count: newItems.count, at: displayIndex, preserving: .itemsAfterMutation)
       )
 
       let indexPaths = (0..<newItems.count).map {
-        IndexPath(item: $0, section: DisplaySection.messages.rawValue)
+        DisplaySection.messages.indexPath(item: $0)
       }
 
       UIView.performWithoutAnimation {
@@ -1114,10 +1115,12 @@ final class TiledUIView<
       tiledLayout.beginBatchUpdates()
       items.append(contentsOf: newItems)
       displayItems.insert(contentsOf: displayItemsToInsert, at: displayIndex)
-      tiledLayout.enqueuePendingUpdate(.insertItems(count: newItems.count, at: displayIndex))
+      tiledLayout.enqueuePendingUpdate(
+        .insertItems(count: newItems.count, at: displayIndex, preserving: .itemsBeforeMutation)
+      )
 
       let indexPaths = (startingIndex..<startingIndex + newItems.count).map {
-        IndexPath(item: $0, section: DisplaySection.messages.rawValue)
+        DisplaySection.messages.indexPath(item: $0)
       }
 
       UIView.performWithoutAnimation {
@@ -1149,10 +1152,12 @@ final class TiledUIView<
         items.insert(item, at: index + offset)
       }
       displayItems.insert(contentsOf: displayItemsToInsert, at: displayIndex)
-      tiledLayout.enqueuePendingUpdate(.insertItems(count: newItems.count, at: displayIndex))
+      tiledLayout.enqueuePendingUpdate(
+        .insertItems(count: newItems.count, at: displayIndex, preserving: .itemsBeforeMutation)
+      )
 
       let indexPaths = (index..<index + newItems.count).map {
-        IndexPath(item: $0, section: DisplaySection.messages.rawValue)
+        DisplaySection.messages.indexPath(item: $0)
       }
 
       UIView.performWithoutAnimation {
@@ -1167,7 +1172,7 @@ final class TiledUIView<
     case .update(let newItems):
       let indexPaths = newItems.compactMap { item -> IndexPath? in
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return nil }
-        return IndexPath(item: index, section: DisplaySection.messages.rawValue)
+        return DisplaySection.messages.indexPath(item: index)
       }
 
       guard !indexPaths.isEmpty else {
@@ -1202,7 +1207,7 @@ final class TiledUIView<
 
       let displayIndicesToRemove = indicesToRemove.map { displayIndexForItem(at: $0) }
       let indexPaths = indicesToRemove.map {
-        IndexPath(item: $0, section: DisplaySection.messages.rawValue)
+        DisplaySection.messages.indexPath(item: $0)
       }
       primeCollectionViewItemCountForBatchUpdate()
       tiledLayout.beginBatchUpdates()
@@ -1210,7 +1215,9 @@ final class TiledUIView<
       for displayIndex in displayIndicesToRemove.sorted(by: >) {
         displayItems.remove(at: displayIndex)
       }
-      tiledLayout.enqueuePendingUpdate(.removeItems(at: displayIndicesToRemove))
+      tiledLayout.enqueuePendingUpdate(
+        .removeItems(at: displayIndicesToRemove, preserving: .itemsBeforeMutation)
+      )
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
@@ -1790,11 +1797,11 @@ final class TiledUIView<
       .prependLoader,
       visible: prependTrigger.loader != nil,
       insertionIndex: { 0 },
-      keepingTrailingPositions: true,
+      positionPreservation: .itemsAfterMutation,
       completion: { [weak self] in
         guard let self else { return }
         self.reconfigureDisplayItem(.prependLoader)
-        self.remeasureDisplayItem(.prependLoader, keepingTrailingPositions: true)
+        self.remeasureDisplayItem(.prependLoader, positionPreservation: .itemsAfterMutation)
         self.updateHiddenEdgeContentInset()
       }
     )
@@ -1803,11 +1810,11 @@ final class TiledUIView<
       .appendLoader,
       visible: appendTrigger.loader != nil,
       insertionIndex: { displayItems.count },
-      keepingTrailingPositions: false,
+      positionPreservation: .itemsBeforeMutation,
       completion: { [weak self] in
         guard let self else { return }
         self.reconfigureDisplayItem(.appendLoader)
-        self.remeasureDisplayItem(.appendLoader, keepingTrailingPositions: false)
+        self.remeasureDisplayItem(.appendLoader, positionPreservation: .itemsBeforeMutation)
         self.updateHiddenEdgeContentInset()
       }
     )
@@ -1822,7 +1829,7 @@ final class TiledUIView<
 
       self.typingIndicatorPhase = .visible
       self.reconfigureDisplayItem(.typingIndicator)
-      self.remeasureDisplayItem(.typingIndicator, keepingTrailingPositions: false)
+      self.remeasureDisplayItem(.typingIndicator, positionPreservation: .itemsBeforeMutation)
       self.updateHiddenEdgeContentInset()
     }
   }
@@ -1834,14 +1841,32 @@ final class TiledUIView<
     guard isAnimatingTypingIndicatorRemoval else { return }
     guard typingIndicatorRemovalGeneration == generation else { return }
 
+    typingIndicatorRemovalWorkItem?.cancel()
+    typingIndicatorRemovalWorkItem = nil
+    isAnimatingTypingIndicatorRemoval = false
     isTypingIndicatorIncludedInContentBounds = false
     reconfigureDisplayItem(.typingIndicator)
-    remeasureDisplayItem(.typingIndicator, keepingTrailingPositions: false)
+    remeasureDisplayItem(.typingIndicator, positionPreservation: .itemsBeforeMutation)
     updateHiddenEdgeContentInset()
     collectionView.layoutIfNeeded()
     clampContentOffsetToScrollableBounds(animated: clampAnimated)
-    isAnimatingTypingIndicatorRemoval = false
-    typingIndicatorRemovalWorkItem = nil
+  }
+
+  private func scheduleTypingIndicatorRemovalCompletion(
+    generation: UInt,
+    clampAnimated: Bool,
+    delay: TimeInterval
+  ) {
+    typingIndicatorRemovalWorkItem?.cancel()
+
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.finishTypingIndicatorRemoval(
+        generation: generation,
+        clampAnimated: clampAnimated
+      )
+    }
+    typingIndicatorRemovalWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
   }
 
   private func updateTypingIndicatorVisibility() {
@@ -1859,7 +1884,7 @@ final class TiledUIView<
         .typingIndicator,
         visible: false,
         insertionIndex: { displayIndexForItem(at: items.count) },
-        keepingTrailingPositions: false,
+        positionPreservation: .itemsBeforeMutation,
         completion: { [weak self] in
           self?.updateHiddenEdgeContentInset()
         }
@@ -1878,7 +1903,7 @@ final class TiledUIView<
       springAnimator?.stop(finished: false)
       springAnimator = nil
       reconfigureDisplayItem(.typingIndicator)
-      remeasureDisplayItem(.typingIndicator, keepingTrailingPositions: false)
+      remeasureDisplayItem(.typingIndicator, positionPreservation: .itemsBeforeMutation)
       updateHiddenEdgeContentInset()
       if wasNearBottom {
         collectionView.layoutIfNeeded()
@@ -1899,14 +1924,11 @@ final class TiledUIView<
       reconfigureDisplayItem(.typingIndicator)
 
       guard wasNearBottom else {
-        let workItem = DispatchWorkItem { [weak self] in
-          self?.finishTypingIndicatorRemoval(
-            generation: removalGeneration,
-            clampAnimated: true
-          )
-        }
-        typingIndicatorRemovalWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+        scheduleTypingIndicatorRemovalCompletion(
+          generation: removalGeneration,
+          clampAnimated: true,
+          delay: typingIndicatorRemovalDelay
+        )
         return
       }
 
@@ -1921,11 +1943,16 @@ final class TiledUIView<
 
       let scrollableBounds = scrollableContentOffsetBounds()
       let targetOffsetY = max(scrollableBounds.min, scrollableBounds.max - attributes.frame.height)
+      scheduleTypingIndicatorRemovalCompletion(
+        generation: removalGeneration,
+        clampAnimated: false,
+        delay: typingIndicatorRemovalAnimationDuration
+      )
 
       scrollToContentOffsetY(
         targetOffsetY,
         animated: true,
-        spring: Spring(duration: 0.55, bounce: 0)
+        spring: Spring(duration: typingIndicatorRemovalAnimationDuration, bounce: 0)
       ) { [weak self] in
         self?.finishTypingIndicatorRemoval(
           generation: removalGeneration,
@@ -1939,7 +1966,7 @@ final class TiledUIView<
       .typingIndicator,
       visible: true,
       insertionIndex: { displayIndexForItem(at: items.count) },
-      keepingTrailingPositions: false,
+      positionPreservation: .itemsBeforeMutation,
       completion: { [weak self] in
         guard let self else { return }
 
@@ -1950,7 +1977,7 @@ final class TiledUIView<
           }
 
           self.reconfigureDisplayItem(.typingIndicator)
-          self.remeasureDisplayItem(.typingIndicator, keepingTrailingPositions: false)
+          self.remeasureDisplayItem(.typingIndicator, positionPreservation: .itemsBeforeMutation)
           self.updateHiddenEdgeContentInset()
 
           if wasNearBottom {
@@ -1962,7 +1989,7 @@ final class TiledUIView<
         } else {
           self.typingIndicatorPhase = .dismissing
           self.reconfigureDisplayItem(.typingIndicator)
-          self.remeasureDisplayItem(.typingIndicator, keepingTrailingPositions: false)
+          self.remeasureDisplayItem(.typingIndicator, positionPreservation: .itemsBeforeMutation)
           self.updateHiddenEdgeContentInset()
         }
       }
@@ -1981,7 +2008,7 @@ final class TiledUIView<
         }
         return 0
       },
-      keepingTrailingPositions: true
+      positionPreservation: .itemsAfterMutation
     )
   }
 }

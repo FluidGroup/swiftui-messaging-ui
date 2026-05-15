@@ -48,10 +48,13 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   /// Structural update to apply from `prepare(forCollectionViewUpdates:)`.
   enum PendingUpdate {
-    case insertItems(count: Int, at: Int)
-    case insertItemsBeforeKeepingTrailingPositions(count: Int, at: Int)
-    case removeItems(at: [Int])
-    case removeItemsKeepingTrailingPositions(at: [Int])
+    case insertItems(count: Int, at: Int, preserving: PositionPreservation)
+    case removeItems(at: [Int], preserving: PositionPreservation)
+  }
+
+  enum PositionPreservation {
+    case itemsBeforeMutation
+    case itemsAfterMutation
   }
 
   private var pendingUpdate: PendingUpdate?
@@ -499,10 +502,57 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   private struct ItemMetrics {
     var yPositions: Deque<CGFloat>
     var heights: Deque<CGFloat>
-    var sectionItemCounts: [Int]
+    var sectionMap: TiledSectionMap
 
     var count: Int {
       min(yPositions.count, heights.count)
+    }
+  }
+
+  private struct TiledSectionMap: Equatable {
+    var itemCounts: [Int]
+
+    init(itemCounts: [Int]) {
+      self.itemCounts = itemCounts
+    }
+
+    init(validating itemCounts: [Int], fallbackItemCount: Int) {
+      if itemCounts.reduce(0, +) == fallbackItemCount {
+        self.itemCounts = itemCounts
+      } else {
+        self.itemCounts = [fallbackItemCount]
+      }
+    }
+
+    func linearIndex(for indexPath: IndexPath, itemLimit: Int) -> Int? {
+      guard indexPath.section >= 0,
+            indexPath.section < itemCounts.count else {
+        return nil
+      }
+
+      let sectionItemCount = itemCounts[indexPath.section]
+      guard indexPath.item >= 0, indexPath.item < sectionItemCount else {
+        return nil
+      }
+
+      let precedingItemCount = itemCounts[..<indexPath.section].reduce(0, +)
+      let linearIndex = precedingItemCount + indexPath.item
+      guard linearIndex < itemLimit else { return nil }
+      return linearIndex
+    }
+
+    func indexPath(forLinearIndex linearIndex: Int, itemLimit: Int) -> IndexPath? {
+      guard linearIndex >= 0, linearIndex < itemLimit else { return nil }
+
+      var remainingIndex = linearIndex
+      for (section, itemCount) in itemCounts.enumerated() {
+        if remainingIndex < itemCount {
+          return IndexPath(item: remainingIndex, section: section)
+        }
+        remainingIndex -= itemCount
+      }
+
+      return nil
     }
   }
 
@@ -510,7 +560,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     ItemMetrics(
       yPositions: itemYPositions,
       heights: itemHeights,
-      sectionItemCounts: currentSectionItemCounts()
+      sectionMap: currentSectionMap()
     )
   }
 
@@ -523,70 +573,53 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       return currentMetrics
     }
 
-    if observedSectionItemCounts(in: collectionView) == batchUpdateMetrics.sectionItemCounts {
+    if observedSectionMap(in: collectionView) == batchUpdateMetrics.sectionMap {
       return batchUpdateMetrics
     } else {
       return currentMetrics
     }
   }
 
-  private func currentSectionItemCounts() -> [Int] {
+  private func currentSectionMap() -> TiledSectionMap {
     let counts = sectionItemCountsProvider?() ?? [itemYPositions.count]
-    guard counts.reduce(0, +) == itemYPositions.count else {
-      return [itemYPositions.count]
-    }
-    return counts
+    return TiledSectionMap(validating: counts, fallbackItemCount: itemYPositions.count)
   }
 
-  private func observedSectionItemCounts(in collectionView: UICollectionView) -> [Int] {
-    guard collectionView.numberOfSections > 0 else { return [] }
-    return (0..<collectionView.numberOfSections).map { section in
+  private func observedSectionMap(in collectionView: UICollectionView) -> TiledSectionMap {
+    guard collectionView.numberOfSections > 0 else {
+      return TiledSectionMap(itemCounts: [])
+    }
+    let itemCounts = (0..<collectionView.numberOfSections).map { section in
       collectionView.numberOfItems(inSection: section)
     }
+    return TiledSectionMap(itemCounts: itemCounts)
   }
 
   private func applyPendingUpdate(_ update: PendingUpdate) {
     switch update {
-    case .insertItems(let count, let index):
-      insertItems(count: count, at: index)
-    case .insertItemsBeforeKeepingTrailingPositions(let count, let index):
-      insertItemsBeforeKeepingTrailingPositions(count: count, at: index)
-    case .removeItems(let indices):
-      removeItems(at: indices)
-    case .removeItemsKeepingTrailingPositions(let indices):
-      removeItemsKeepingTrailingPositions(at: indices)
+    case .insertItems(let count, let index, let positionPreservation):
+      switch positionPreservation {
+      case .itemsBeforeMutation:
+        insertItems(count: count, at: index)
+      case .itemsAfterMutation:
+        insertItemsBeforeKeepingTrailingPositions(count: count, at: index)
+      }
+    case .removeItems(let indices, let positionPreservation):
+      switch positionPreservation {
+      case .itemsBeforeMutation:
+        removeItems(at: indices)
+      case .itemsAfterMutation:
+        removeItemsKeepingTrailingPositions(at: indices)
+      }
     }
   }
 
   private func linearIndex(for indexPath: IndexPath, in metrics: ItemMetrics) -> Int? {
-    guard indexPath.section >= 0,
-          indexPath.section < metrics.sectionItemCounts.count else {
-      return nil
-    }
-
-    let itemCount = metrics.sectionItemCounts[indexPath.section]
-    guard indexPath.item >= 0, indexPath.item < itemCount else {
-      return nil
-    }
-
-    let precedingCount = metrics.sectionItemCounts[..<indexPath.section].reduce(0, +)
-    let index = precedingCount + indexPath.item
-    guard index < metrics.count else { return nil }
-    return index
+    metrics.sectionMap.linearIndex(for: indexPath, itemLimit: metrics.count)
   }
 
   private func indexPath(forLinearIndex linearIndex: Int, in metrics: ItemMetrics) -> IndexPath? {
-    guard linearIndex >= 0, linearIndex < metrics.count else { return nil }
-
-    var remainingIndex = linearIndex
-    for (section, itemCount) in metrics.sectionItemCounts.enumerated() {
-      if remainingIndex < itemCount {
-        return IndexPath(item: remainingIndex, section: section)
-      }
-      remainingIndex -= itemCount
-    }
-
-    return nil
+    metrics.sectionMap.indexPath(forLinearIndex: linearIndex, itemLimit: metrics.count)
   }
 
   private func contentBounds(in metrics: ItemMetrics) -> (top: CGFloat, bottom: CGFloat)? {
