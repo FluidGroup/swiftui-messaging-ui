@@ -722,12 +722,13 @@ final class TiledUIView<
         return
       }
 
+      items.insert(contentsOf: newItems, at: 0)
+      tiledLayout.prependItems(count: newItems.count)
+
       let indexPaths = (0..<newItems.count).map { IndexPath(item: $0, section: 0) }
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
-          items.insert(contentsOf: newItems, at: 0)
-          tiledLayout.prependItems(count: newItems.count)
           collectionView.insertItems(at: indexPaths)
         }, completion: { _ in
           completion()
@@ -741,14 +742,15 @@ final class TiledUIView<
         return
       }
 
+      items.append(contentsOf: newItems)
+      tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
+
       let indexPaths = (startingIndex..<startingIndex + newItems.count).map {
         IndexPath(item: $0, section: 0)
       }
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
-          items.append(contentsOf: newItems)
-          tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
           collectionView.insertItems(at: indexPaths)
         }, completion: { [weak self] _ in
           guard let self else { return }
@@ -767,16 +769,17 @@ final class TiledUIView<
         return
       }
 
+      for (offset, item) in newItems.enumerated() {
+        items.insert(item, at: index + offset)
+      }
+      tiledLayout.insertItems(count: newItems.count, at: index)
+
       let indexPaths = (index..<index + newItems.count).map {
         IndexPath(item: $0, section: 0)
       }
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
-          for (offset, item) in newItems.enumerated() {
-            items.insert(item, at: index + offset)
-          }
-          tiledLayout.insertItems(count: newItems.count, at: index)
           collectionView.insertItems(at: indexPaths)
         }, completion: { _ in
           completion()
@@ -794,13 +797,14 @@ final class TiledUIView<
         return
       }
 
+      for item in newItems {
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+          items[index] = item
+        }
+      }
+
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
-          for item in newItems {
-            if let index = items.firstIndex(where: { $0.id == item.id }) {
-              items[index] = item
-            }
-          }
           collectionView.reconfigureItems(at: indexPaths)
         }, completion: { _ in
           completion()
@@ -818,12 +822,13 @@ final class TiledUIView<
         return
       }
 
+      items.removeAll { idsSet.contains($0.id) }
+      tiledLayout.removeItems(at: indicesToRemove)
+
       let indexPaths = indicesToRemove.map { IndexPath(item: $0, section: 0) }
 
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
-          items.removeAll { idsSet.contains($0.id) }
-          tiledLayout.removeItems(at: indicesToRemove)
           collectionView.deleteItems(at: indexPaths)
         }, completion: { _ in
           completion()
