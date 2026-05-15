@@ -5,7 +5,6 @@
 //  Created by Hiroshi Kimura on 2025/12/10.
 //
 
-import DequeModule
 import UIKit
 
 // MARK: - TiledCollectionViewLayout
@@ -17,6 +16,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// Closure to query item size. Receives index and width, returns size.
   /// If nil is returned, estimatedHeight will be used.
   public var itemSizeProvider: ((_ index: Int, _ width: CGFloat) -> CGSize?)?
+
+  /// Closure to query item size using the section-aware collection view identity.
+  /// This is preferred by TiledView; `itemSizeProvider` remains as the linear compatibility path.
+  var itemSizeProviderForIndexPath: ((_ indexPath: IndexPath, _ width: CGFloat) -> CGSize?)?
 
   /// Closure to query item counts for each visual section in layout order.
   var sectionItemCountsProvider: (() -> [Int])?
@@ -36,8 +39,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// On-demand cache for layout attributes (IGListKit-style).
   /// Attributes are created when requested and cached for reuse.
   private var attributesCache: [IndexPath: UICollectionViewLayoutAttributes] = [:]
-  private var itemYPositions: Deque<CGFloat> = []
-  private var itemHeights: Deque<CGFloat> = []
+  private var itemMetrics = ItemMetrics()
   private var lastPreparedBoundsWidth: CGFloat = 0
   /// Metrics from before a batch mutation. UICollectionView can ask for
   /// old-count attributes while our data source already exposes the new items.
@@ -48,8 +50,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   /// Structural update to apply from `prepare(forCollectionViewUpdates:)`.
   enum PendingUpdate {
-    case insertItems(count: Int, at: Int, preserving: PositionPreservation)
-    case removeItems(at: [Int], preserving: PositionPreservation)
+    case insertItems(count: Int, at: IndexPath, preserving: PositionPreservation)
+    case removeItems(at: [IndexPath], preserving: PositionPreservation)
   }
 
   enum PositionPreservation {
@@ -116,21 +118,20 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
       if firstIndex < itemCount {
         for index in firstIndex..<itemCount {
-          let y = metrics.yPositions[index]
+          guard let item = metrics.item(atLinearIndex: index) else { continue }
+          let y = item.metric.yPosition
 
           // Stop if we're past the visible rect
           if y > rect.maxY {
             break
           }
 
-          let height = metrics.heights[index]
+          let height = item.metric.height
           let frame = CGRect(x: 0, y: y, width: boundsWidth, height: height)
 
           if frame.intersects(rect) {
-            if let indexPath = indexPath(forLinearIndex: index, in: metrics) {
-              let attributes = getOrCreateAttributes(for: indexPath, frame: frame)
-              result.append(attributes)
-            }
+            let attributes = getOrCreateAttributes(for: item.indexPath, frame: frame)
+            result.append(attributes)
           }
         }
       }
@@ -142,14 +143,14 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   public override func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
     let metrics = activeItemMetrics()
 
-    guard let index = linearIndex(for: indexPath, in: metrics) else { return nil }
+    guard let item = metrics.item(at: indexPath) else { return nil }
 
     let boundsWidth = collectionView?.bounds.width ?? 0
     let frame = CGRect(
       x: 0,
-      y: metrics.yPositions[index],
+      y: item.yPosition,
       width: boundsWidth,
-      height: metrics.heights[index]
+      height: item.height
     )
 
     return getOrCreateAttributes(for: indexPath, frame: frame)
@@ -196,9 +197,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     let newHeight = preferredAttributes.frame.size.height
 
     if preferredAttributes.representedElementCategory == .cell {
-      if let index = linearIndex(for: preferredAttributes.indexPath, in: currentItemMetrics()),
-         index < itemHeights.count {
-        updateItemHeight(at: index, newHeight: newHeight)
+      if currentItemMetrics().contains(preferredAttributes.indexPath) {
+        updateItemHeight(at: preferredAttributes.indexPath, newHeight: newHeight)
       }
     }
 
@@ -235,175 +235,209 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   public func appendItems(count: Int, startingIndex: Int) {
     let width = collectionView?.bounds.width ?? 0
 
-    // If width is 0, mark for recalculation in prepare()
     if width == 0 {
       needsHeightRecalculation = true
     }
 
+    var items = itemMetrics.flattenedItems()
+    let targetSectionMap = currentSectionMap(expectedItemCount: items.count + count)
     for i in 0..<count {
       let index = startingIndex + i
-      let height = itemSizeProvider?(index, width)?.height ?? estimatedHeight
+      let height = itemSize(
+        atLinearIndex: index,
+        in: targetSectionMap,
+        width: width
+      )?.height ?? estimatedHeight
 
       let y: CGFloat
-      if let lastY = itemYPositions.last, let lastHeight = itemHeights.last {
-        y = lastY + lastHeight
+      if let lastItem = items.last {
+        y = lastItem.yPosition + lastItem.height
       } else {
         y = anchorY
       }
-      itemYPositions.append(y)
-      itemHeights.append(height)
+      items.append(ItemMetric(yPosition: y, height: height))
     }
 
+    replaceItemMetrics(items, using: targetSectionMap)
     logCapacity(operation: "appendItems")
   }
 
   public func prependItems(count: Int) {
+    guard count > 0 else { return }
+
     let width = collectionView?.bounds.width ?? 0
 
     if width == 0 {
       needsHeightRecalculation = true
     }
 
-    // Process in reverse order for prepend (to insert from index 0 sequentially)
-    for i in (0..<count).reversed() {
-      let height = itemSizeProvider?(i, width)?.height ?? estimatedHeight
-      let y = (itemYPositions.first ?? anchorY) - height
-      itemYPositions.insert(y, at: 0)
-      itemHeights.insert(height, at: 0)
-    }
-
-    // Invalidate cache since IndexPaths shifted
-    invalidateAttributesCache()
-
+    let targetSectionMap = currentSectionMap(expectedItemCount: itemMetrics.count + count)
+    insertItemsBeforeKeepingTrailingPositions(count: count, at: 0, targetSectionMap: targetSectionMap)
     logCapacity(operation: "prependItems")
   }
 
   func insertItemsBeforeKeepingTrailingPositions(count: Int, at index: Int) {
+    let targetSectionMap = currentSectionMap(expectedItemCount: itemMetrics.count + count)
+    insertItemsBeforeKeepingTrailingPositions(count: count, at: index, targetSectionMap: targetSectionMap)
+  }
+
+  private func insertItemsBeforeKeepingTrailingPositions(
+    count: Int,
+    at index: Int,
+    targetSectionMap: TiledSectionMap
+  ) {
     guard count > 0 else { return }
 
     let width = collectionView?.bounds.width ?? 0
-    let insertionIndex = max(0, min(index, itemYPositions.count))
+    var items = itemMetrics.flattenedItems()
+    let insertionIndex = max(0, min(index, items.count))
 
     if width == 0 {
       needsHeightRecalculation = true
     }
 
     let heights = (0..<count).map { offset in
-      itemSizeProvider?(insertionIndex + offset, width)?.height ?? estimatedHeight
+      itemSize(
+        atLinearIndex: insertionIndex + offset,
+        in: targetSectionMap,
+        width: width
+      )?.height ?? estimatedHeight
     }
     let totalInsertedHeight = heights.reduce(0, +)
 
     let insertionEndY: CGFloat
-    if insertionIndex < itemYPositions.count {
-      insertionEndY = itemYPositions[insertionIndex]
-    } else if let lastY = itemYPositions.last, let lastHeight = itemHeights.last {
-      insertionEndY = lastY + lastHeight
+    if insertionIndex < items.count {
+      insertionEndY = items[insertionIndex].yPosition
+    } else if let lastItem = items.last {
+      insertionEndY = lastItem.yPosition + lastItem.height
     } else {
       insertionEndY = anchorY
     }
 
     for i in 0..<insertionIndex {
-      itemYPositions[i] -= totalInsertedHeight
+      items[i].yPosition -= totalInsertedHeight
     }
 
     var currentY = insertionEndY - totalInsertedHeight
     for (offset, height) in heights.enumerated() {
-      itemYPositions.insert(currentY, at: insertionIndex + offset)
-      itemHeights.insert(height, at: insertionIndex + offset)
+      items.insert(ItemMetric(yPosition: currentY, height: height), at: insertionIndex + offset)
       currentY += height
     }
 
-    invalidateAttributesCache()
+    replaceItemMetrics(items, using: targetSectionMap)
     logCapacity(operation: "insertItemsBeforeKeepingTrailingPositions")
   }
 
   public func insertItems(count: Int, at index: Int) {
+    let targetSectionMap = currentSectionMap(expectedItemCount: itemMetrics.count + count)
+    insertItems(count: count, at: index, targetSectionMap: targetSectionMap)
+  }
+
+  private func insertItems(
+    count: Int,
+    at index: Int,
+    targetSectionMap: TiledSectionMap
+  ) {
+    guard count > 0 else { return }
+
     let width = collectionView?.bounds.width ?? 0
+    var items = itemMetrics.flattenedItems()
+    let insertionIndex = max(0, min(index, items.count))
 
     if width == 0 {
       needsHeightRecalculation = true
     }
 
-    // Calculate the starting Y position for inserted items
     let startY: CGFloat
-    if index < itemYPositions.count {
-      startY = itemYPositions[index]
-    } else if let lastY = itemYPositions.last, let lastHeight = itemHeights.last {
-      startY = lastY + lastHeight
+    if insertionIndex < items.count {
+      startY = items[insertionIndex].yPosition
+    } else if let lastItem = items.last {
+      startY = lastItem.yPosition + lastItem.height
     } else {
       startY = anchorY
     }
 
-    // Calculate heights and insert
     var currentY = startY
     var totalInsertedHeight: CGFloat = 0
 
     for i in 0..<count {
-      let height = itemSizeProvider?(index + i, width)?.height ?? estimatedHeight
-      itemYPositions.insert(currentY, at: index + i)
-      itemHeights.insert(height, at: index + i)
+      let height = itemSize(
+        atLinearIndex: insertionIndex + i,
+        in: targetSectionMap,
+        width: width
+      )?.height ?? estimatedHeight
+      items.insert(ItemMetric(yPosition: currentY, height: height), at: insertionIndex + i)
       currentY += height
       totalInsertedHeight += height
     }
 
-    // Shift all items after the insertion point
-    for i in (index + count)..<itemYPositions.count {
-      itemYPositions[i] += totalInsertedHeight
+    for i in (insertionIndex + count)..<items.count {
+      items[i].yPosition += totalInsertedHeight
     }
 
-    // Invalidate cache since IndexPaths shifted
-    invalidateAttributesCache()
+    replaceItemMetrics(items, using: targetSectionMap)
   }
 
   func removeItemsKeepingTrailingPositions(at indices: [Int]) {
+    let targetSectionMap = currentSectionMap(expectedItemCount: itemMetrics.count - indices.count)
+    removeItemsKeepingTrailingPositions(at: indices, targetSectionMap: targetSectionMap)
+  }
+
+  private func removeItemsKeepingTrailingPositions(
+    at indices: [Int],
+    targetSectionMap: TiledSectionMap
+  ) {
     guard !indices.isEmpty else { return }
 
+    var items = itemMetrics.flattenedItems()
     let sortedIndices = indices.sorted(by: >)
 
     for index in sortedIndices {
-      guard index >= 0, index < itemYPositions.count else { continue }
+      guard index >= 0, index < items.count else { continue }
 
-      let removedHeight = itemHeights[index]
+      let removedHeight = items[index].height
 
-      itemYPositions.remove(at: index)
-      itemHeights.remove(at: index)
+      items.remove(at: index)
 
       for i in 0..<index {
-        itemYPositions[i] += removedHeight
+        items[i].yPosition += removedHeight
       }
     }
 
-    invalidateAttributesCache()
+    replaceItemMetrics(items, using: targetSectionMap)
   }
 
   public func removeItems(at indices: [Int]) {
+    let targetSectionMap = currentSectionMap(expectedItemCount: itemMetrics.count - indices.count)
+    removeItems(at: indices, targetSectionMap: targetSectionMap)
+  }
+
+  private func removeItems(
+    at indices: [Int],
+    targetSectionMap: TiledSectionMap
+  ) {
     guard !indices.isEmpty else { return }
 
-    // Sort indices in descending order to remove from end first
+    var items = itemMetrics.flattenedItems()
     let sortedIndices = indices.sorted(by: >)
 
     for index in sortedIndices {
-      guard index >= 0, index < itemYPositions.count else { continue }
+      guard index >= 0, index < items.count else { continue }
 
-      let removedHeight = itemHeights[index]
+      let removedHeight = items[index].height
 
-      // Remove the item
-      itemYPositions.remove(at: index)
-      itemHeights.remove(at: index)
+      items.remove(at: index)
 
-      // Shift all items after the removal point
-      for i in index..<itemYPositions.count {
-        itemYPositions[i] -= removedHeight
+      for i in index..<items.count {
+        items[i].yPosition -= removedHeight
       }
     }
 
-    // Invalidate cache since IndexPaths shifted
-    invalidateAttributesCache()
+    replaceItemMetrics(items, using: targetSectionMap)
   }
 
   public func clear() {
-    itemYPositions.removeAll()
-    itemHeights.removeAll()
+    itemMetrics.removeAll()
     invalidateAttributesCache()
   }
 
@@ -421,56 +455,76 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     attributesCache.removeAll(keepingCapacity: true)
   }
 
-  public func updateItemHeight(at index: Int, newHeight: CGFloat) {
-    guard index >= 0, index < itemHeights.count else { return }
-
-    let oldHeight = itemHeights[index]
-    let heightDiff = newHeight - oldHeight
-    guard heightDiff != 0 else { return }
-
-    itemHeights[index] = newHeight
-
-    // Update Y positions for all items after this index
-    for i in (index + 1)..<itemYPositions.count {
-      itemYPositions[i] += heightDiff
-    }
-
+  private func replaceItemMetrics(_ items: [ItemMetric], using sectionMap: TiledSectionMap) {
+    itemMetrics.replaceItems(items, using: sectionMap)
     invalidateAttributesCache()
   }
 
-  func updateItemHeightKeepingTrailingPositions(at index: Int, newHeight: CGFloat) {
-    guard index >= 0, index < itemHeights.count else { return }
+  public func updateItemHeight(at index: Int, newHeight: CGFloat) {
+    var items = itemMetrics.flattenedItems()
+    guard index >= 0, index < items.count else { return }
 
-    let oldHeight = itemHeights[index]
+    let oldHeight = items[index].height
     let heightDiff = newHeight - oldHeight
     guard heightDiff != 0 else { return }
 
-    itemHeights[index] = newHeight
-    itemYPositions[index] -= heightDiff
+    items[index].height = newHeight
 
-    for i in 0..<index {
-      itemYPositions[i] -= heightDiff
+    for i in (index + 1)..<items.count {
+      items[i].yPosition += heightDiff
     }
 
-    invalidateAttributesCache()
+    replaceItemMetrics(items, using: itemMetrics.sectionMap)
+  }
+
+  func updateItemHeight(at indexPath: IndexPath, newHeight: CGFloat) {
+    guard let index = linearIndex(for: indexPath, in: currentItemMetrics()) else { return }
+    updateItemHeight(at: index, newHeight: newHeight)
+  }
+
+  func updateItemHeightKeepingTrailingPositions(at index: Int, newHeight: CGFloat) {
+    var items = itemMetrics.flattenedItems()
+    guard index >= 0, index < items.count else { return }
+
+    let oldHeight = items[index].height
+    let heightDiff = newHeight - oldHeight
+    guard heightDiff != 0 else { return }
+
+    items[index].height = newHeight
+    items[index].yPosition -= heightDiff
+
+    for i in 0..<index {
+      items[i].yPosition -= heightDiff
+    }
+
+    replaceItemMetrics(items, using: itemMetrics.sectionMap)
+  }
+
+  func updateItemHeightKeepingTrailingPositions(at indexPath: IndexPath, newHeight: CGFloat) {
+    guard let index = linearIndex(for: indexPath, in: currentItemMetrics()) else { return }
+    updateItemHeightKeepingTrailingPositions(at: index, newHeight: newHeight)
   }
 
   // MARK: - Private Helpers
 
   /// Recalculates all item heights and Y positions when width becomes available.
   private func recalculateAllHeights(width: CGFloat) {
-    guard !itemYPositions.isEmpty else { return }
+    guard !itemMetrics.isEmpty else { return }
 
     var currentY = anchorY
+    var items = itemMetrics.flattenedItems()
 
-    for index in 0..<itemYPositions.count {
-      let height = itemSizeProvider?(index, width)?.height ?? estimatedHeight
-      itemYPositions[index] = currentY
-      itemHeights[index] = height
+    for index in items.indices {
+      let height = itemSize(
+        atLinearIndex: index,
+        in: itemMetrics.sectionMap,
+        width: width
+      )?.height ?? estimatedHeight
+      items[index] = ItemMetric(yPosition: currentY, height: height)
       currentY += height
     }
 
-    invalidateAttributesCache()
+    replaceItemMetrics(items, using: itemMetrics.sectionMap)
   }
 
   /// Binary search to find the first item that could be visible in the rect.
@@ -485,7 +539,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
     while low < high {
       let mid = (low + high) / 2
-      let itemBottom = metrics.yPositions[mid] + metrics.heights[mid]
+      guard let item = metrics.item(atLinearIndex: mid)?.metric else {
+        break
+      }
+      let itemBottom = item.yPosition + item.height
 
       if itemBottom < rect.minY {
         // Item is completely above visible area, search in right half
@@ -499,13 +556,103 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     return low
   }
 
+  private func itemSize(
+    atLinearIndex linearIndex: Int,
+    in sectionMap: TiledSectionMap,
+    width: CGFloat
+  ) -> CGSize? {
+    if let indexPath = sectionMap.indexPath(
+      forLinearIndex: linearIndex,
+      itemLimit: sectionMap.totalItemCount
+    ),
+       let size = itemSizeProviderForIndexPath?(indexPath, width) {
+      return size
+    }
+
+    return itemSizeProvider?(linearIndex, width)
+  }
+
+  private struct ItemMetric {
+    var yPosition: CGFloat
+    var height: CGFloat
+  }
+
   private struct ItemMetrics {
-    var yPositions: Deque<CGFloat>
-    var heights: Deque<CGFloat>
-    var sectionMap: TiledSectionMap
+    private var sections: [[ItemMetric]] = []
 
     var count: Int {
-      min(yPositions.count, heights.count)
+      sections.reduce(0) { $0 + $1.count }
+    }
+
+    var isEmpty: Bool {
+      count == 0
+    }
+
+    var sectionMap: TiledSectionMap {
+      TiledSectionMap(itemCounts: sections.map(\.count))
+    }
+
+    var firstItem: ItemMetric? {
+      for section in sections {
+        if let item = section.first {
+          return item
+        }
+      }
+      return nil
+    }
+
+    var lastItem: ItemMetric? {
+      for section in sections.reversed() {
+        if let item = section.last {
+          return item
+        }
+      }
+      return nil
+    }
+
+    func contains(_ indexPath: IndexPath) -> Bool {
+      item(at: indexPath) != nil
+    }
+
+    func item(at indexPath: IndexPath) -> ItemMetric? {
+      guard indexPath.section >= 0,
+            indexPath.section < sections.count,
+            indexPath.item >= 0,
+            indexPath.item < sections[indexPath.section].count else {
+        return nil
+      }
+      return sections[indexPath.section][indexPath.item]
+    }
+
+    func item(atLinearIndex linearIndex: Int) -> (indexPath: IndexPath, metric: ItemMetric)? {
+      guard let indexPath = sectionMap.indexPath(forLinearIndex: linearIndex, itemLimit: count),
+            let metric = item(at: indexPath) else {
+        return nil
+      }
+      return (indexPath, metric)
+    }
+
+    func flattenedItems() -> [ItemMetric] {
+      sections.flatMap { $0 }
+    }
+
+    mutating func replaceItems(_ items: [ItemMetric], using sectionMap: TiledSectionMap) {
+      sections.removeAll(keepingCapacity: true)
+
+      var cursor = 0
+      for itemCount in sectionMap.itemCounts {
+        let endIndex = min(cursor + itemCount, items.count)
+        if cursor < endIndex {
+          sections.append(Array(items[cursor..<endIndex]))
+        } else {
+          sections.append([])
+        }
+        cursor = endIndex
+      }
+    }
+
+    mutating func removeAll() {
+      sections.removeAll(keepingCapacity: true)
     }
   }
 
@@ -522,6 +669,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       } else {
         self.itemCounts = [fallbackItemCount]
       }
+    }
+
+    var totalItemCount: Int {
+      itemCounts.reduce(0, +)
     }
 
     func linearIndex(for indexPath: IndexPath, itemLimit: Int) -> Int? {
@@ -557,11 +708,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   }
 
   private func currentItemMetrics() -> ItemMetrics {
-    ItemMetrics(
-      yPositions: itemYPositions,
-      heights: itemHeights,
-      sectionMap: currentSectionMap()
-    )
+    itemMetrics
   }
 
   private func activeItemMetrics() -> ItemMetrics {
@@ -580,9 +727,10 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
   }
 
-  private func currentSectionMap() -> TiledSectionMap {
-    let counts = sectionItemCountsProvider?() ?? [itemYPositions.count]
-    return TiledSectionMap(validating: counts, fallbackItemCount: itemYPositions.count)
+  private func currentSectionMap(expectedItemCount: Int? = nil) -> TiledSectionMap {
+    let expectedItemCount = expectedItemCount ?? itemMetrics.count
+    let counts = sectionItemCountsProvider?() ?? [expectedItemCount]
+    return TiledSectionMap(validating: counts, fallbackItemCount: expectedItemCount)
   }
 
   private func observedSectionMap(in collectionView: UICollectionView) -> TiledSectionMap {
@@ -597,19 +745,38 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   private func applyPendingUpdate(_ update: PendingUpdate) {
     switch update {
-    case .insertItems(let count, let index, let positionPreservation):
+    case .insertItems(let count, let indexPath, let positionPreservation):
+      let targetSectionMap = targetSectionMapAfterMutation(
+        expectedItemCount: itemMetrics.count + count
+      )
+      guard let index = targetSectionMap.linearIndex(
+        for: indexPath,
+        itemLimit: itemMetrics.count + count
+      ) else { return }
+
       switch positionPreservation {
       case .itemsBeforeMutation:
-        insertItems(count: count, at: index)
+        insertItems(count: count, at: index, targetSectionMap: targetSectionMap)
       case .itemsAfterMutation:
-        insertItemsBeforeKeepingTrailingPositions(count: count, at: index)
+        insertItemsBeforeKeepingTrailingPositions(
+          count: count,
+          at: index,
+          targetSectionMap: targetSectionMap
+        )
       }
-    case .removeItems(let indices, let positionPreservation):
+
+    case .removeItems(let indexPaths, let positionPreservation):
+      let indices = linearRemovalIndices(for: indexPaths)
+      guard !indices.isEmpty else { return }
+      let targetSectionMap = targetSectionMapAfterMutation(
+        expectedItemCount: itemMetrics.count - indices.count
+      )
+
       switch positionPreservation {
       case .itemsBeforeMutation:
-        removeItems(at: indices)
+        removeItems(at: indices, targetSectionMap: targetSectionMap)
       case .itemsAfterMutation:
-        removeItemsKeepingTrailingPositions(at: indices)
+        removeItemsKeepingTrailingPositions(at: indices, targetSectionMap: targetSectionMap)
       }
     }
   }
@@ -618,15 +785,28 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     metrics.sectionMap.linearIndex(for: indexPath, itemLimit: metrics.count)
   }
 
-  private func indexPath(forLinearIndex linearIndex: Int, in metrics: ItemMetrics) -> IndexPath? {
-    metrics.sectionMap.indexPath(forLinearIndex: linearIndex, itemLimit: metrics.count)
+  private func linearRemovalIndices(for indexPaths: [IndexPath]) -> [Int] {
+    let metrics = batchUpdateMetrics ?? currentItemMetrics()
+    return indexPaths.compactMap { indexPath in
+      linearIndex(for: indexPath, in: metrics)
+    }
+  }
+
+  private func targetSectionMapAfterMutation(expectedItemCount: Int) -> TiledSectionMap {
+    if let collectionView, collectionView.numberOfSections > 0 {
+      let observedSectionMap = observedSectionMap(in: collectionView)
+      if observedSectionMap.totalItemCount == expectedItemCount {
+        return observedSectionMap
+      }
+    }
+
+    return currentSectionMap(expectedItemCount: expectedItemCount)
   }
 
   private func contentBounds(in metrics: ItemMetrics) -> (top: CGFloat, bottom: CGFloat)? {
-    guard let firstY = metrics.yPositions.first,
-          let lastY = metrics.yPositions.last,
-          let lastHeight = metrics.heights.last else { return nil }
-    return (firstY, lastY + lastHeight)
+    guard let firstItem = metrics.firstItem,
+          let lastItem = metrics.lastItem else { return nil }
+    return (firstItem.yPosition, lastItem.yPosition + lastItem.height)
   }
 
   private func logCapacity(operation: String) {
