@@ -723,10 +723,10 @@ final class TiledUIView<
       }
 
       items.insert(contentsOf: newItems, at: 0)
-      tiledLayout.prependItems(count: newItems.count)
 
       let indexPaths = (0..<newItems.count).map { IndexPath(item: $0, section: 0) }
 
+      tiledLayout.enqueuePendingUpdate(.prepend(count: newItems.count))
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
           collectionView.insertItems(at: indexPaths)
@@ -743,12 +743,14 @@ final class TiledUIView<
       }
 
       items.append(contentsOf: newItems)
-      tiledLayout.appendItems(count: newItems.count, startingIndex: startingIndex)
 
       let indexPaths = (startingIndex..<startingIndex + newItems.count).map {
         IndexPath(item: $0, section: 0)
       }
 
+      tiledLayout.enqueuePendingUpdate(
+        .append(count: newItems.count, startingIndex: startingIndex)
+      )
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
           collectionView.insertItems(at: indexPaths)
@@ -772,12 +774,12 @@ final class TiledUIView<
       for (offset, item) in newItems.enumerated() {
         items.insert(item, at: index + offset)
       }
-      tiledLayout.insertItems(count: newItems.count, at: index)
 
       let indexPaths = (index..<index + newItems.count).map {
         IndexPath(item: $0, section: 0)
       }
 
+      tiledLayout.enqueuePendingUpdate(.insert(count: newItems.count, at: index))
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
           collectionView.insertItems(at: indexPaths)
@@ -823,10 +825,10 @@ final class TiledUIView<
       }
 
       items.removeAll { idsSet.contains($0.id) }
-      tiledLayout.removeItems(at: indicesToRemove)
 
       let indexPaths = indicesToRemove.map { IndexPath(item: $0, section: 0) }
 
+      tiledLayout.enqueuePendingUpdate(.remove(indices: indicesToRemove))
       UIView.performWithoutAnimation {
         collectionView.performBatchUpdates({
           collectionView.deleteItems(at: indexPaths)

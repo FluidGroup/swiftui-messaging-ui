@@ -52,6 +52,18 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
   /// Tracks whether item heights need recalculation due to width being 0 at initial add time.
   private var needsHeightRecalculation: Bool = false
 
+  /// Pending structural update to apply inside `prepareForCollectionViewUpdates(_:)`.
+  /// Set from `TiledView` before `performBatchUpdates` so UIKit captures the "before"
+  /// layout state correctly before the layout transitions to the "after" state.
+  public enum PendingUpdate {
+    case prepend(count: Int)
+    case append(count: Int, startingIndex: Int)
+    case insert(count: Int, at: Int)
+    case remove(indices: [Int])
+  }
+
+  private var pendingUpdate: PendingUpdate?
+
   // MARK: - UICollectionViewLayout Overrides
 
   public override var collectionViewContentSize: CGSize {
@@ -336,6 +348,47 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
 
     return context
+  }
+
+  // MARK: - Batch Update Hooks
+
+  /// Enqueue the next structural change so it is applied inside
+  /// `prepareForCollectionViewUpdates(_:)`, after `UICollectionView` has
+  /// captured the "before" state for animation.
+  public func enqueuePendingUpdate(_ update: PendingUpdate) {
+    pendingUpdate = update
+  }
+
+  public override func prepare(forCollectionViewUpdates updateItems: [UICollectionViewUpdateItem]) {
+    super.prepare(forCollectionViewUpdates: updateItems)
+
+    guard let update = pendingUpdate else { return }
+    pendingUpdate = nil
+
+    switch update {
+    case .prepend(let count):
+      prependItems(count: count)
+    case .append(let count, let startingIndex):
+      appendItems(count: count, startingIndex: startingIndex)
+    case .insert(let count, let index):
+      insertItems(count: count, at: index)
+    case .remove(let indices):
+      removeItems(at: indices)
+    }
+
+    // Refresh contentInset now that item bounds have changed. `prepare()` is
+    // not guaranteed to run after `prepare(forCollectionViewUpdates:)`, so the
+    // inset would otherwise stay frozen at the pre-update value — making the
+    // newly added range unreachable by scrolling.
+    if let collectionView {
+      collectionView.contentInset = calculateContentInset()
+    }
+  }
+
+  public override func finalizeCollectionViewUpdates() {
+    super.finalizeCollectionViewUpdates()
+    // Defensive: in case a pending update was set but no batch was processed.
+    pendingUpdate = nil
   }
 
   // MARK: - Public Item Management API
