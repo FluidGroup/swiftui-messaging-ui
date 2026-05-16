@@ -118,13 +118,14 @@ Before:                          After:
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ TiledCollectionViewLayout (UICollectionViewLayout)          │
-│   - itemYPositions: [CGFloat]                               │
-│   - itemHeights: [CGFloat]                                  │
-│   - itemSizeProvider: ((Int, CGFloat) -> CGSize?)?          │
+│   - itemMetrics: sectioned item positions and heights       │
+│   - itemSizeProviderForIndexPath: ((IndexPath, CGFloat)     │
+│       -> CGSize?)?                                          │
+│   - sectionItemCountsProvider: (() -> [Int])?               │
 │                                                             │
 │   Methods:                                                  │
-│   - appendItems(count:startingIndex:)                       │
-│   - prependItems(count:)                                    │
+│   - resetItemMetrics(expectedItemCount:)                    │
+│   - enqueuePendingUpdate(_:)                                │
 │   - updateItemHeight(at:newHeight:)                         │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -160,33 +161,33 @@ struct ChatView: View {
 }
 ```
 
-### Cell Size Measurement with itemSizeProvider
+### Cell Size Measurement with IndexPath
 
-To get accurate sizes before cells are displayed, TiledView uses an `itemSizeProvider` closure.
+To get accurate sizes before cells are displayed, TiledView uses an index-path-based size provider.
 
 ```swift
 // Inside TiledView
-tiledLayout.itemSizeProvider = { [weak self] index, width in
-  self?.measureSize(at: index, width: width)
+tiledLayout.itemSizeProviderForIndexPath = { [weak self] indexPath, width in
+  self?.measureSize(at: indexPath, width: width)
 }
 
-// Size measurement (reusing UIHostingController)
-private func measureSize(at index: Int, width: CGFloat) -> CGSize? {
-  guard index < items.count else { return nil }
-  let item = items[index]
-  sizingHostingController.rootView = cellBuilder(item, .init())
-  sizingHostingController.view.layoutIfNeeded()
+// Size measurement (reusing sizing cells)
+private func measureSize(at indexPath: IndexPath, width: CGFloat) -> CGSize? {
+  switch DisplaySection(rawValue: indexPath.section) {
+  case .messages:
+    guard indexPath.item < items.count else { return nil }
+    return measureMessage(items[indexPath.item], width: width)
 
-  return sizingHostingController.view.systemLayoutSizeFitting(
-    CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
-    withHorizontalFittingPriority: .required,
-    verticalFittingPriority: .fittingSizeLevel
-  )
+  case .prependLoader, .headerContent, .typingIndicator, .appendLoader:
+    return measureAccessory(at: indexPath, width: width)
+
+  case nil:
+    return nil
+  }
 }
 ```
 
-**Important**: Creating a new `UIHostingController` instance each time is expensive.
-A single instance is retained and its `rootView` is swapped for reuse.
+**Important**: The layout keeps item metrics by section, so accessory cells and message cells do not need a synthetic linear index.
 
 ---
 
@@ -205,13 +206,13 @@ A single instance is retained and its `rootView` is swapped for reuse.
 
 ### Implementation Constraints
 
-1. **Synchronization between items array and Layout arrays**
-   - `items` and `TiledCollectionViewLayout.itemYPositions/itemHeights` must always be in sync
-   - Order: Update items array first → Then update Layout
+1. **Synchronization between item snapshots and section metrics**
+   - `items`, accessory visibility, and `TiledCollectionViewLayout` section metrics must always be in sync
+   - Order: Update the data source state first → Then enqueue the matching layout mutation
 
 2. **Size measurement timing**
-   - `itemSizeProvider` is called after the items array is updated
-   - `measureSize` accesses the items array, so order is important
+   - `itemSizeProviderForIndexPath` is called after the data source state is updated
+   - `measureSize` accesses the current section state, so order is important
 
 ---
 

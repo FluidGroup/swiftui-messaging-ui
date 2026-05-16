@@ -400,6 +400,7 @@ final class TiledUIView<
   /// Item snapshot diff tracking
   private var isApplyingItemChanges: Bool = false
   private var queuedItems: [Item]?
+  private var hasAppliedItemSnapshot: Bool = false
 
   /// Edge load triggers
   private var prependTrigger = EdgeLoadTrigger<PrependLoadingView>()
@@ -478,6 +479,7 @@ final class TiledUIView<
       synchronizeAppendLoadingIndicatorVisibility()
     }
 
+    guard hasAppliedItemSnapshot else { return }
     updateLoadingIndicatorVisibility()
   }
 
@@ -491,6 +493,7 @@ final class TiledUIView<
   func setTypingIndicator(_ indicator: TypingIndicator<TypingIndicatorView>?) {
     typingIndicator = indicator
 
+    guard hasAppliedItemSnapshot else { return }
     updateTypingIndicatorVisibility()
   }
 
@@ -503,6 +506,7 @@ final class TiledUIView<
   func setHeaderContent(_ header: HeaderContent<HeaderContentView>?) {
     headerContent = header
 
+    guard hasAppliedItemSnapshot else { return }
     updateHeaderContentVisibility()
   }
 
@@ -1001,6 +1005,17 @@ final class TiledUIView<
       return
     }
 
+    if !hasAppliedItemSnapshot {
+      hasAppliedItemSnapshot = true
+      isApplyingItemChanges = true
+      applyChange(.replace(newItems)) { [weak self] in
+        guard let self else { return }
+        self.isApplyingItemChanges = false
+        self.finishPendingLoadingIndicatorHides()
+      }
+      return
+    }
+
     isApplyingItemChanges = true
     recursive_drainItemChanges(to: newItems)
   }
@@ -1064,7 +1079,7 @@ final class TiledUIView<
       tiledLayout.clear()
       items = Deque(newItems)
       displayedAccessoryState = currentAccessoryState()
-      tiledLayout.appendItems(count: totalDisplayItemCount, startingIndex: 0)
+      tiledLayout.resetItemMetrics(expectedItemCount: totalDisplayItemCount)
       collectionView.reloadData()
       updateHiddenEdgeContentInset()
 
@@ -1803,18 +1818,18 @@ final class TiledUIView<
         self.reconfigureAccessoryDisplayItem(.prependLoader)
         self.remeasureAccessoryDisplayItem(.prependLoader, positionPreservation: .itemsAfterMutation)
         self.updateHiddenEdgeContentInset()
-      }
-    )
 
-    setAccessoryDisplayItem(
-      .appendLoader,
-      visible: appendTrigger.loader != nil,
-      positionPreservation: .itemsBeforeMutation,
-      completion: { [weak self] in
-        guard let self else { return }
-        self.reconfigureAccessoryDisplayItem(.appendLoader)
-        self.remeasureAccessoryDisplayItem(.appendLoader, positionPreservation: .itemsBeforeMutation)
-        self.updateHiddenEdgeContentInset()
+        self.setAccessoryDisplayItem(
+          .appendLoader,
+          visible: self.appendTrigger.loader != nil,
+          positionPreservation: .itemsBeforeMutation,
+          completion: { [weak self] in
+            guard let self else { return }
+            self.reconfigureAccessoryDisplayItem(.appendLoader)
+            self.remeasureAccessoryDisplayItem(.appendLoader, positionPreservation: .itemsBeforeMutation)
+            self.updateHiddenEdgeContentInset()
+          }
+        )
       }
     )
   }
