@@ -439,6 +439,9 @@ struct MessengerSwiftDataDemo: View {
           store.deleteMessage(id: message.id)
         }
       }
+      .headerContent(.header(content: {
+        Color.blue.frame(height: 200)
+      }))
       .prependLoader(.loader(perform: {
         guard store.hasMore else { return }
         await store.loadOlder()
