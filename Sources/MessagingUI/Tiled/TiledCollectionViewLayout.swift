@@ -78,6 +78,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     func indexPath(item: Int = 0) -> IndexPath {
       IndexPath(item: item, section: rawValue)
     }
+
+    var shouldPreserveTrailingPositionsWhenSelfSizing: Bool {
+      switch self {
+      case .prependLoader, .headerContent:
+        true
+      case .messages, .typingIndicator, .appendLoader:
+        false
+      }
+    }
   }
 
   private var pendingUpdate: PendingUpdate?
@@ -205,9 +214,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     let newHeight = preferredAttributes.frame.size.height
 
     if preferredAttributes.representedElementCategory == .cell {
-      if currentItemMetrics().contains(preferredAttributes.indexPath) {
-        updateItemHeight(at: preferredAttributes.indexPath, newHeight: newHeight)
-      }
+      updateItemHeightForSelfSizing(at: preferredAttributes.indexPath, newHeight: newHeight)
     }
 
     return context
@@ -433,6 +440,17 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     itemMetrics.shiftItem(at: indexPath, by: -heightDiff)
     itemMetrics.shiftItems(before: indexPath, by: -heightDiff)
     invalidateAttributesCache()
+  }
+
+  private func updateItemHeightForSelfSizing(at indexPath: IndexPath, newHeight: CGFloat) {
+    guard currentItemMetrics().contains(indexPath) else { return }
+    guard let section = DisplaySection(rawValue: indexPath.section) else { return }
+
+    if section.shouldPreserveTrailingPositionsWhenSelfSizing {
+      updateItemHeightKeepingTrailingPositions(at: indexPath, newHeight: newHeight)
+    } else {
+      updateItemHeight(at: indexPath, newHeight: newHeight)
+    }
   }
 
   // MARK: - Private Helpers
