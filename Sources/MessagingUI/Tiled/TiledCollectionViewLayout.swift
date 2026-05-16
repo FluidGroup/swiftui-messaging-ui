@@ -54,6 +54,32 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     case itemsAfterMutation
   }
 
+  enum DisplaySection: Int, CaseIterable {
+    case prependLoader
+    case headerContent
+    case messages
+    case typingIndicator
+    case appendLoader
+
+    static let allCases: [DisplaySection] = [
+      .prependLoader,
+      .headerContent,
+      .messages,
+      .typingIndicator,
+      .appendLoader,
+    ]
+
+    static let reversedCases = Array(allCases.reversed())
+
+    static var count: Int {
+      allCases.count
+    }
+
+    func indexPath(item: Int = 0) -> IndexPath {
+      IndexPath(item: item, section: rawValue)
+    }
+  }
+
   private var pendingUpdate: PendingUpdate?
 
   /// Edge content that should keep its cell height but not expand the scrollable content bounds.
@@ -222,18 +248,18 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
 
     let sectionItemCounts = currentSectionItemCounts(expectedItemCount: expectedItemCount)
-    var sections: [[ItemMetric]] = []
+    var sections = ItemMetricSections()
     var currentY = anchorY
 
-    for section in sectionItemCounts.indices {
+    for section in DisplaySection.allCases {
       var sectionItems: [ItemMetric] = []
       for item in 0..<sectionItemCounts.itemCount(in: section) {
-        let indexPath = IndexPath(item: item, section: section)
+        let indexPath = section.indexPath(item: item)
         let height = itemSize(at: indexPath, width: width)?.height ?? estimatedHeight
         sectionItems.append(ItemMetric(yPosition: currentY, height: height))
         currentY += height
       }
-      sections.append(sectionItems)
+      sections.setItems(sectionItems, in: section)
     }
 
     replaceItemMetrics(sections)
@@ -252,8 +278,6 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     if width == 0 {
       needsHeightRecalculation = true
     }
-
-    itemMetrics.prepareForMutation(using: targetSectionItemCounts)
 
     let heights = insertedItemHeights(
       count: count,
@@ -301,8 +325,6 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       needsHeightRecalculation = true
     }
 
-    itemMetrics.prepareForMutation(using: targetSectionItemCounts)
-
     let heights = insertedItemHeights(
       count: count,
       startingAt: indexPath,
@@ -345,7 +367,6 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       _ = itemMetrics.removeItem(at: indexPath)
     }
 
-    itemMetrics.prepareForMutation(using: targetSectionItemCounts)
     itemMetrics.assertItemCounts(match: targetSectionItemCounts)
     invalidateAttributesCache()
   }
@@ -361,7 +382,6 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       itemMetrics.shiftItems(atOrAfter: indexPath, by: -removedItem.height)
     }
 
-    itemMetrics.prepareForMutation(using: targetSectionItemCounts)
     itemMetrics.assertItemCounts(match: targetSectionItemCounts)
     invalidateAttributesCache()
   }
@@ -387,7 +407,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     attributesCache.removeAll(keepingCapacity: true)
   }
 
-  private func replaceItemMetrics(_ sections: [[ItemMetric]]) {
+  private func replaceItemMetrics(_ sections: ItemMetricSections) {
     itemMetrics.replaceSections(sections)
     invalidateAttributesCache()
   }
@@ -422,17 +442,17 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     guard !itemMetrics.isEmpty else { return }
 
     var currentY = anchorY
-    var sections: [[ItemMetric]] = []
+    var sections = ItemMetricSections()
 
-    for section in itemMetrics.sectionItemCounts.indices {
+    for section in DisplaySection.allCases {
       var sectionItems: [ItemMetric] = []
       for item in 0..<itemMetrics.sectionItemCounts.itemCount(in: section) {
-        let indexPath = IndexPath(item: item, section: section)
+        let indexPath = section.indexPath(item: item)
         let height = itemSize(at: indexPath, width: width)?.height ?? estimatedHeight
         sectionItems.append(ItemMetric(yPosition: currentY, height: height))
         currentY += height
       }
-      sections.append(sectionItems)
+      sections.setItems(sectionItems, in: section)
     }
 
     replaceItemMetrics(sections)
@@ -461,11 +481,282 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     var height: CGFloat
   }
 
-  private struct ItemMetrics {
-    private var sections: [[ItemMetric]] = []
+  private struct ItemMetricSections {
+    private var prependLoader: ItemMetric?
+    private var headerContent: ItemMetric?
+    private var messages: [ItemMetric] = []
+    private var typingIndicator: ItemMetric?
+    private var appendLoader: ItemMetric?
 
     var count: Int {
-      sections.reduce(0) { $0 + $1.count }
+      itemCount(in: .prependLoader)
+        + itemCount(in: .headerContent)
+        + messages.count
+        + itemCount(in: .typingIndicator)
+        + itemCount(in: .appendLoader)
+    }
+
+    var sectionItemCounts: SectionItemCounts {
+      SectionItemCounts(
+        prependLoader: itemCount(in: .prependLoader),
+        headerContent: itemCount(in: .headerContent),
+        messages: messages.count,
+        typingIndicator: itemCount(in: .typingIndicator),
+        appendLoader: itemCount(in: .appendLoader)
+      )
+    }
+
+    func itemCount(in section: DisplaySection) -> Int {
+      switch section {
+      case .prependLoader:
+        optionalItemCount(prependLoader)
+      case .headerContent:
+        optionalItemCount(headerContent)
+      case .messages:
+        messages.count
+      case .typingIndicator:
+        optionalItemCount(typingIndicator)
+      case .appendLoader:
+        optionalItemCount(appendLoader)
+      }
+    }
+
+    func firstItem(in section: DisplaySection) -> ItemMetric? {
+      item(at: 0, in: section)
+    }
+
+    func lastItem(in section: DisplaySection) -> ItemMetric? {
+      switch section {
+      case .prependLoader:
+        prependLoader
+      case .headerContent:
+        headerContent
+      case .messages:
+        messages.last
+      case .typingIndicator:
+        typingIndicator
+      case .appendLoader:
+        appendLoader
+      }
+    }
+
+    func item(at index: Int, in section: DisplaySection) -> ItemMetric? {
+      switch section {
+      case .prependLoader:
+        return index == 0 ? prependLoader : nil
+      case .headerContent:
+        return index == 0 ? headerContent : nil
+      case .messages:
+        guard index >= 0, index < messages.count else { return nil }
+        return messages[index]
+      case .typingIndicator:
+        return index == 0 ? typingIndicator : nil
+      case .appendLoader:
+        return index == 0 ? appendLoader : nil
+      }
+    }
+
+    func firstPotentiallyVisibleItemIndex(in section: DisplaySection, rect: CGRect) -> Int {
+      switch section {
+      case .messages:
+        firstPotentiallyVisibleMessageIndex(rect: rect)
+      case .prependLoader, .headerContent, .typingIndicator, .appendLoader:
+        0
+      }
+    }
+
+    mutating func setItems(_ items: [ItemMetric], in section: DisplaySection) {
+      switch section {
+      case .prependLoader:
+        prependLoader = accessoryItem(from: items)
+      case .headerContent:
+        headerContent = accessoryItem(from: items)
+      case .messages:
+        messages = items
+      case .typingIndicator:
+        typingIndicator = accessoryItem(from: items)
+      case .appendLoader:
+        appendLoader = accessoryItem(from: items)
+      }
+    }
+
+    mutating func insert(_ items: [ItemMetric], at indexPath: IndexPath) {
+      guard let section = DisplaySection(rawValue: indexPath.section) else { return }
+      switch section {
+      case .messages:
+        let insertionIndex = min(max(indexPath.item, 0), messages.count)
+        messages.insert(contentsOf: items, at: insertionIndex)
+      case .prependLoader, .headerContent, .typingIndicator, .appendLoader:
+        assert(items.count <= 1, "Accessory sections can contain at most one item.")
+        assert(itemCount(in: section) == 0, "Accessory sections can contain at most one item.")
+        guard indexPath.item == 0,
+              let item = items.first else { return }
+        setAccessoryItem(item, in: section)
+      }
+    }
+
+    mutating func removeItem(at indexPath: IndexPath) -> ItemMetric? {
+      guard let section = DisplaySection(rawValue: indexPath.section) else { return nil }
+
+      switch section {
+      case .messages:
+        guard indexPath.item >= 0,
+              indexPath.item < messages.count else {
+          return nil
+        }
+        return messages.remove(at: indexPath.item)
+      case .prependLoader, .headerContent, .typingIndicator, .appendLoader:
+        guard indexPath.item == 0 else { return nil }
+        return takeAccessoryItem(in: section)
+      }
+    }
+
+    mutating func updateItem(
+      at indexPath: IndexPath,
+      _ body: (inout ItemMetric) -> Void
+    ) {
+      guard let section = DisplaySection(rawValue: indexPath.section) else { return }
+
+      switch section {
+      case .messages:
+        guard indexPath.item >= 0,
+              indexPath.item < messages.count else {
+          return
+        }
+        body(&messages[indexPath.item])
+      case .prependLoader, .headerContent, .typingIndicator, .appendLoader:
+        guard indexPath.item == 0 else { return }
+        updateAccessoryItem(in: section, body)
+      }
+    }
+
+    mutating func shiftItems(in section: DisplaySection, by delta: CGFloat) {
+      shiftItems(in: section, range: 0..<itemCount(in: section), by: delta)
+    }
+
+    mutating func shiftItems(
+      in section: DisplaySection,
+      range: Range<Int>,
+      by delta: CGFloat
+    ) {
+      guard delta != 0 else { return }
+
+      switch section {
+      case .messages:
+        for itemIndex in range {
+          messages[itemIndex].yPosition += delta
+        }
+      case .prependLoader, .headerContent, .typingIndicator, .appendLoader:
+        guard range.contains(0) else { return }
+        updateAccessoryItem(in: section) { item in
+          item.yPosition += delta
+        }
+      }
+    }
+
+    mutating func removeAll() {
+      prependLoader = nil
+      headerContent = nil
+      messages.removeAll(keepingCapacity: true)
+      typingIndicator = nil
+      appendLoader = nil
+    }
+
+    private func optionalItemCount(_ item: ItemMetric?) -> Int {
+      item == nil ? 0 : 1
+    }
+
+    private func accessoryItem(from items: [ItemMetric]) -> ItemMetric? {
+      assert(items.count <= 1, "Accessory sections can contain at most one item.")
+      return items.first
+    }
+
+    private mutating func setAccessoryItem(_ item: ItemMetric, in section: DisplaySection) {
+      switch section {
+      case .prependLoader:
+        prependLoader = item
+      case .headerContent:
+        headerContent = item
+      case .messages:
+        assertionFailure("Message items are tracked by the message section.")
+      case .typingIndicator:
+        typingIndicator = item
+      case .appendLoader:
+        appendLoader = item
+      }
+    }
+
+    private mutating func takeAccessoryItem(in section: DisplaySection) -> ItemMetric? {
+      switch section {
+      case .prependLoader:
+        defer { prependLoader = nil }
+        return prependLoader
+      case .headerContent:
+        defer { headerContent = nil }
+        return headerContent
+      case .messages:
+        assertionFailure("Message items are tracked by the message section.")
+        return nil
+      case .typingIndicator:
+        defer { typingIndicator = nil }
+        return typingIndicator
+      case .appendLoader:
+        defer { appendLoader = nil }
+        return appendLoader
+      }
+    }
+
+    private mutating func updateAccessoryItem(
+      in section: DisplaySection,
+      _ body: (inout ItemMetric) -> Void
+    ) {
+      switch section {
+      case .prependLoader:
+        Self.updateAccessoryItem(&prependLoader, body)
+      case .headerContent:
+        Self.updateAccessoryItem(&headerContent, body)
+      case .messages:
+        assertionFailure("Message items are tracked by the message section.")
+      case .typingIndicator:
+        Self.updateAccessoryItem(&typingIndicator, body)
+      case .appendLoader:
+        Self.updateAccessoryItem(&appendLoader, body)
+      }
+    }
+
+    private static func updateAccessoryItem(
+      _ item: inout ItemMetric?,
+      _ body: (inout ItemMetric) -> Void
+    ) {
+      guard var value = item else { return }
+      body(&value)
+      item = value
+    }
+
+    private func firstPotentiallyVisibleMessageIndex(rect: CGRect) -> Int {
+      var low = 0
+      var high = messages.count
+
+      while low < high {
+        let mid = (low + high) / 2
+        let itemBottom = messages[mid].yPosition + messages[mid].height
+
+        if itemBottom < rect.minY {
+          low = mid + 1
+        } else {
+          high = mid
+        }
+      }
+
+      return low
+    }
+  }
+
+  private struct ItemMetrics {
+    private var sections = ItemMetricSections()
+
+    var count: Int {
+      sections.count
     }
 
     var isEmpty: Bool {
@@ -473,12 +764,12 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
 
     var sectionItemCounts: SectionItemCounts {
-      SectionItemCounts(sections.map(\.count))
+      sections.sectionItemCounts
     }
 
     var firstItem: ItemMetric? {
-      for section in sections {
-        if let item = section.first {
+      for section in DisplaySection.allCases {
+        if let item = sections.firstItem(in: section) {
           return item
         }
       }
@@ -486,8 +777,8 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
 
     var lastItem: ItemMetric? {
-      for section in sections.reversed() {
-        if let item = section.last {
+      for section in DisplaySection.reversedCases {
+        if let item = sections.lastItem(in: section) {
           return item
         }
       }
@@ -499,40 +790,37 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
 
     func item(at indexPath: IndexPath) -> ItemMetric? {
-      guard indexPath.section >= 0,
-            indexPath.section < sections.count,
-            indexPath.item >= 0,
-            indexPath.item < sections[indexPath.section].count else {
+      guard let section = DisplaySection(rawValue: indexPath.section) else {
         return nil
       }
-      return sections[indexPath.section][indexPath.item]
+      return sections.item(at: indexPath.item, in: section)
     }
 
     func items(intersecting rect: CGRect) -> [(indexPath: IndexPath, metric: ItemMetric)] {
       var result: [(indexPath: IndexPath, metric: ItemMetric)] = []
 
-      for sectionIndex in sections.indices {
-        let section = sections[sectionIndex]
-        guard !section.isEmpty else { continue }
+      for section in DisplaySection.allCases {
+        let itemCount = sections.itemCount(in: section)
+        guard itemCount > 0 else { continue }
 
-        if let lastItem = section.last,
+        if let lastItem = sections.lastItem(in: section),
            lastItem.yPosition + lastItem.height < rect.minY {
           continue
         }
 
-        if let firstItem = section.first,
+        if let firstItem = sections.firstItem(in: section),
            firstItem.yPosition > rect.maxY {
           break
         }
 
-        let firstItemIndex = firstPotentiallyVisibleItemIndex(in: section, rect: rect)
-        for itemIndex in firstItemIndex..<section.count {
-          let metric = section[itemIndex]
+        let firstItemIndex = sections.firstPotentiallyVisibleItemIndex(in: section, rect: rect)
+        for itemIndex in firstItemIndex..<itemCount {
+          guard let metric = sections.item(at: itemIndex, in: section) else { continue }
           if metric.yPosition > rect.maxY {
             break
           }
           result.append((
-            indexPath: IndexPath(item: itemIndex, section: sectionIndex),
+            indexPath: section.indexPath(item: itemIndex),
             metric: metric
           ))
         }
@@ -542,19 +830,24 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
 
     func itemBefore(_ indexPath: IndexPath) -> ItemMetric? {
-      guard !sections.isEmpty else { return nil }
-      guard indexPath.section < sections.count else { return lastItem }
-
-      if indexPath.section >= 0 {
-        let itemEndIndex = min(max(indexPath.item, 0), sections[indexPath.section].count)
-        if itemEndIndex > 0 {
-          return sections[indexPath.section][itemEndIndex - 1]
+      guard !isEmpty else { return nil }
+      guard let section = DisplaySection(rawValue: indexPath.section) else {
+        if indexPath.section >= DisplaySection.count {
+          return lastItem
+        } else {
+          return nil
         }
       }
 
-      guard indexPath.section > 0 else { return nil }
-      for sectionIndex in stride(from: indexPath.section - 1, through: 0, by: -1) {
-        if let item = sections[sectionIndex].last {
+      let itemEndIndex = min(max(indexPath.item, 0), sections.itemCount(in: section))
+      if itemEndIndex > 0 {
+        return sections.item(at: itemEndIndex - 1, in: section)
+      }
+
+      guard section.rawValue > 0 else { return nil }
+      for rawValue in stride(from: section.rawValue - 1, through: 0, by: -1) {
+        guard let previousSection = DisplaySection(rawValue: rawValue) else { continue }
+        if let item = sections.lastItem(in: previousSection) {
           return item
         }
       }
@@ -563,33 +856,23 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
 
     func firstItem(atOrAfter indexPath: IndexPath) -> ItemMetric? {
-      guard indexPath.section >= 0,
-            indexPath.section < sections.count else { return nil }
+      guard let section = DisplaySection(rawValue: indexPath.section) else { return nil }
 
-      let itemStartIndex = min(max(indexPath.item, 0), sections[indexPath.section].count)
-      if itemStartIndex < sections[indexPath.section].count {
-        return sections[indexPath.section][itemStartIndex]
+      let itemStartIndex = min(max(indexPath.item, 0), sections.itemCount(in: section))
+      if itemStartIndex < sections.itemCount(in: section) {
+        return sections.item(at: itemStartIndex, in: section)
       }
 
-      let nextSection = indexPath.section + 1
-      guard nextSection < sections.count else { return nil }
-      for sectionIndex in nextSection..<sections.count {
-        if let item = sections[sectionIndex].first {
+      let nextSectionRawValue = section.rawValue + 1
+      guard nextSectionRawValue < DisplaySection.count else { return nil }
+      for rawValue in nextSectionRawValue..<DisplaySection.count {
+        guard let nextSection = DisplaySection(rawValue: rawValue) else { continue }
+        if let item = sections.firstItem(in: nextSection) {
           return item
         }
       }
 
       return nil
-    }
-
-    mutating func prepareForMutation(using sectionItemCounts: SectionItemCounts) {
-      while sections.count < sectionItemCounts.count {
-        sections.append([])
-      }
-
-      if sections.count > sectionItemCounts.count {
-        sections.removeLast(sections.count - sectionItemCounts.count)
-      }
     }
 
     func assertItemCounts(match sectionItemCounts: SectionItemCounts) {
@@ -600,58 +883,35 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     }
 
     mutating func insert(_ items: [ItemMetric], at indexPath: IndexPath) {
-      guard indexPath.section >= 0 else { return }
-      while sections.count <= indexPath.section {
-        sections.append([])
-      }
-
-      let insertionIndex = min(max(indexPath.item, 0), sections[indexPath.section].count)
-      sections[indexPath.section].insert(contentsOf: items, at: insertionIndex)
+      sections.insert(items, at: indexPath)
     }
 
     mutating func removeItem(at indexPath: IndexPath) -> ItemMetric? {
-      guard indexPath.section >= 0,
-            indexPath.section < sections.count,
-            indexPath.item >= 0,
-            indexPath.item < sections[indexPath.section].count else {
-        return nil
-      }
-
-      return sections[indexPath.section].remove(at: indexPath.item)
+      sections.removeItem(at: indexPath)
     }
 
     mutating func updateItemHeight(at indexPath: IndexPath, newHeight: CGFloat) {
-      guard indexPath.section >= 0,
-            indexPath.section < sections.count,
-            indexPath.item >= 0,
-            indexPath.item < sections[indexPath.section].count else {
-        return
+      sections.updateItem(at: indexPath) { item in
+        item.height = newHeight
       }
-
-      sections[indexPath.section][indexPath.item].height = newHeight
     }
 
     mutating func shiftItem(at indexPath: IndexPath, by delta: CGFloat) {
-      guard delta != 0,
-            indexPath.section >= 0,
-            indexPath.section < sections.count,
-            indexPath.item >= 0,
-            indexPath.item < sections[indexPath.section].count else {
-        return
+      guard delta != 0 else { return }
+      sections.updateItem(at: indexPath) { item in
+        item.yPosition += delta
       }
-
-      sections[indexPath.section][indexPath.item].yPosition += delta
     }
 
     mutating func shiftItems(before indexPath: IndexPath, by delta: CGFloat) {
       guard delta != 0 else { return }
 
-      for sectionIndex in sections.indices {
-        if sectionIndex < indexPath.section {
-          shiftItems(in: sectionIndex, by: delta)
-        } else if sectionIndex == indexPath.section {
-          let endIndex = min(max(indexPath.item, 0), sections[sectionIndex].count)
-          shiftItems(in: sectionIndex, range: 0..<endIndex, by: delta)
+      for section in DisplaySection.allCases {
+        if section.rawValue < indexPath.section {
+          shiftItems(in: section, by: delta)
+        } else if section.rawValue == indexPath.section {
+          let endIndex = min(max(indexPath.item, 0), sections.itemCount(in: section))
+          shiftItems(in: section, range: 0..<endIndex, by: delta)
           return
         } else {
           return
@@ -662,14 +922,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     mutating func shiftItems(after indexPath: IndexPath, by delta: CGFloat) {
       guard delta != 0 else { return }
 
-      for sectionIndex in sections.indices {
-        if sectionIndex < indexPath.section {
+      for section in DisplaySection.allCases {
+        if section.rawValue < indexPath.section {
           continue
-        } else if sectionIndex == indexPath.section {
-          let startIndex = min(max(indexPath.item + 1, 0), sections[sectionIndex].count)
-          shiftItems(in: sectionIndex, range: startIndex..<sections[sectionIndex].count, by: delta)
+        } else if section.rawValue == indexPath.section {
+          let itemCount = sections.itemCount(in: section)
+          let startIndex = min(max(indexPath.item + 1, 0), itemCount)
+          shiftItems(in: section, range: startIndex..<itemCount, by: delta)
         } else {
-          shiftItems(in: sectionIndex, by: delta)
+          shiftItems(in: section, by: delta)
         }
       }
     }
@@ -677,89 +938,136 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     mutating func shiftItems(atOrAfter indexPath: IndexPath, by delta: CGFloat) {
       guard delta != 0 else { return }
 
-      for sectionIndex in sections.indices {
-        if sectionIndex < indexPath.section {
+      for section in DisplaySection.allCases {
+        if section.rawValue < indexPath.section {
           continue
-        } else if sectionIndex == indexPath.section {
-          let startIndex = min(max(indexPath.item, 0), sections[sectionIndex].count)
-          shiftItems(in: sectionIndex, range: startIndex..<sections[sectionIndex].count, by: delta)
+        } else if section.rawValue == indexPath.section {
+          let itemCount = sections.itemCount(in: section)
+          let startIndex = min(max(indexPath.item, 0), itemCount)
+          shiftItems(in: section, range: startIndex..<itemCount, by: delta)
         } else {
-          shiftItems(in: sectionIndex, by: delta)
+          shiftItems(in: section, by: delta)
         }
       }
     }
 
-    mutating func replaceSections(_ sections: [[ItemMetric]]) {
+    mutating func replaceSections(_ sections: ItemMetricSections) {
       self.sections = sections
     }
 
     mutating func removeAll() {
-      sections.removeAll(keepingCapacity: true)
+      sections.removeAll()
     }
 
-    private func firstPotentiallyVisibleItemIndex(in section: [ItemMetric], rect: CGRect) -> Int {
-      var low = 0
-      var high = section.count
-
-      while low < high {
-        let mid = (low + high) / 2
-        let itemBottom = section[mid].yPosition + section[mid].height
-
-        if itemBottom < rect.minY {
-          low = mid + 1
-        } else {
-          high = mid
-        }
-      }
-
-      return low
-    }
-
-    private mutating func shiftItems(in sectionIndex: Int, by delta: CGFloat) {
-      shiftItems(in: sectionIndex, range: 0..<sections[sectionIndex].count, by: delta)
+    private mutating func shiftItems(in section: DisplaySection, by delta: CGFloat) {
+      sections.shiftItems(in: section, by: delta)
     }
 
     private mutating func shiftItems(
-      in sectionIndex: Int,
+      in section: DisplaySection,
       range: Range<Int>,
       by delta: CGFloat
     ) {
-      for itemIndex in range {
-        sections[sectionIndex][itemIndex].yPosition += delta
-      }
+      sections.shiftItems(in: section, range: range, by: delta)
     }
   }
 
   private struct SectionItemCounts: Equatable {
-    private var itemCounts: [Int]
+    private let prependLoader: Int
+    private let headerContent: Int
+    private let messages: Int
+    private let typingIndicator: Int
+    private let appendLoader: Int
+
+    init() {
+      self.init(
+        prependLoader: 0,
+        headerContent: 0,
+        messages: 0,
+        typingIndicator: 0,
+        appendLoader: 0
+      )
+    }
+
+    init(messageItemCount: Int) {
+      self.init(
+        prependLoader: 0,
+        headerContent: 0,
+        messages: messageItemCount,
+        typingIndicator: 0,
+        appendLoader: 0
+      )
+    }
+
+    init(
+      prependLoader: Int,
+      headerContent: Int,
+      messages: Int,
+      typingIndicator: Int,
+      appendLoader: Int
+    ) {
+      self.prependLoader = max(prependLoader, 0)
+      self.headerContent = max(headerContent, 0)
+      self.messages = max(messages, 0)
+      self.typingIndicator = max(typingIndicator, 0)
+      self.appendLoader = max(appendLoader, 0)
+    }
 
     init(_ itemCounts: [Int]) {
-      self.itemCounts = itemCounts.map { max($0, 0) }
+      self.init(
+        prependLoader: Self.itemCount(for: .prependLoader, in: itemCounts),
+        headerContent: Self.itemCount(for: .headerContent, in: itemCounts),
+        messages: Self.itemCount(for: .messages, in: itemCounts),
+        typingIndicator: Self.itemCount(for: .typingIndicator, in: itemCounts),
+        appendLoader: Self.itemCount(for: .appendLoader, in: itemCounts)
+      )
     }
 
     init(validating itemCounts: [Int], expectedTotalItemCount: Int) {
-      let itemCounts = itemCounts.map { max($0, 0) }
-      if itemCounts.reduce(0, +) != expectedTotalItemCount {
+      self.init(itemCounts)
+      if totalItemCount != expectedTotalItemCount {
         assertionFailure("Section item counts must match the expected total item count.")
       }
-      self.itemCounts = itemCounts
     }
 
     var count: Int {
-      itemCounts.count
-    }
-
-    var indices: Range<Int> {
-      itemCounts.indices
+      DisplaySection.count
     }
 
     var totalItemCount: Int {
-      itemCounts.reduce(0, +)
+      prependLoader
+        + headerContent
+        + messages
+        + typingIndicator
+        + appendLoader
+    }
+
+    func itemCount(in section: DisplaySection) -> Int {
+      switch section {
+      case .prependLoader:
+        prependLoader
+      case .headerContent:
+        headerContent
+      case .messages:
+        messages
+      case .typingIndicator:
+        typingIndicator
+      case .appendLoader:
+        appendLoader
+      }
     }
 
     func itemCount(in section: Int) -> Int {
-      guard section >= 0, section < itemCounts.count else { return 0 }
-      return itemCounts[section]
+      guard let section = DisplaySection(rawValue: section) else { return 0 }
+      return itemCount(in: section)
+    }
+
+    private static func itemCount(
+      for section: DisplaySection,
+      in itemCounts: [Int]
+    ) -> Int {
+      guard itemCounts.indices.contains(section.rawValue) else { return 0 }
+      return max(itemCounts[section.rawValue], 0)
     }
   }
 
@@ -785,16 +1093,15 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
 
   private func currentSectionItemCounts(expectedItemCount: Int? = nil) -> SectionItemCounts {
     let expectedItemCount = expectedItemCount ?? itemMetrics.count
-    let counts = sectionItemCountsProvider?() ?? [expectedItemCount]
-    return SectionItemCounts(
-      validating: counts,
-      expectedTotalItemCount: expectedItemCount
-    )
+    guard let counts = sectionItemCountsProvider?() else {
+      return SectionItemCounts(messageItemCount: expectedItemCount)
+    }
+    return SectionItemCounts(validating: counts, expectedTotalItemCount: expectedItemCount)
   }
 
   private func observedSectionItemCounts(in collectionView: UICollectionView) -> SectionItemCounts {
     guard collectionView.numberOfSections > 0 else {
-      return SectionItemCounts([])
+      return SectionItemCounts()
     }
     let itemCounts = (0..<collectionView.numberOfSections).map { section in
       collectionView.numberOfItems(inSection: section)

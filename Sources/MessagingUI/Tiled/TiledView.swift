@@ -343,18 +343,7 @@ final class TiledUIView<
     case empty
   }
 
-  private enum DisplaySection: Int, CaseIterable {
-    case prependLoader
-    case headerContent
-    case messages
-    case typingIndicator
-    case appendLoader
-
-    func indexPath(item: Int = 0) -> IndexPath {
-      IndexPath(item: item, section: rawValue)
-    }
-  }
-
+  private typealias DisplaySection = TiledCollectionViewLayout.DisplaySection
   private typealias PositionPreservation = TiledCollectionViewLayout.PositionPreservation
 
   private struct DisplayedAccessoryState {
@@ -1242,7 +1231,7 @@ final class TiledUIView<
   // MARK: UICollectionViewDataSource
 
   func numberOfSections(in collectionView: UICollectionView) -> Int {
-    DisplaySection.allCases.count
+    DisplaySection.count
   }
 
   func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
