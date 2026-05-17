@@ -94,7 +94,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     // Add header supplementary view if visible
     if headerSize.height > 0 {
       if let headerAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledSupplementaryView.headerKind,
+        ofKind: TiledSupplementaryViewKind.headerKind,
         at: IndexPath(item: 0, section: 0)
       ), headerAttrs.frame.intersects(rect) {
         result.append(headerAttrs)
@@ -104,7 +104,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     // Add content header supplementary view if visible
     if headerContentSize.height > 0 {
       if let contentHeaderAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledSupplementaryView.contentHeaderKind,
+        ofKind: TiledSupplementaryViewKind.contentHeaderKind,
         at: IndexPath(item: 0, section: 0)
       ), contentHeaderAttrs.frame.intersects(rect) {
         result.append(contentHeaderAttrs)
@@ -140,7 +140,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     // Add typing indicator supplementary view if visible
     if typingIndicatorSize.height > 0 {
       if let typingAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledSupplementaryView.typingIndicatorKind,
+        ofKind: TiledSupplementaryViewKind.typingIndicatorKind,
         at: IndexPath(item: 0, section: 0)
       ), typingAttrs.frame.intersects(rect) {
         result.append(typingAttrs)
@@ -150,7 +150,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     // Add footer supplementary view if visible
     if footerSize.height > 0 {
       if let footerAttrs = layoutAttributesForSupplementaryView(
-        ofKind: TiledSupplementaryView.footerKind,
+        ofKind: TiledSupplementaryViewKind.footerKind,
         at: IndexPath(item: 0, section: 0)
       ), footerAttrs.frame.intersects(rect) {
         result.append(footerAttrs)
@@ -167,7 +167,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     let boundsWidth = collectionView?.bounds.width ?? 0
 
     switch elementKind {
-    case TiledSupplementaryView.headerKind:
+    case TiledSupplementaryViewKind.headerKind:
       guard headerSize.height > 0 else { return nil }
       let attrs = UICollectionViewLayoutAttributes(
         forSupplementaryViewOfKind: elementKind,
@@ -183,7 +183,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
       return attrs
 
-    case TiledSupplementaryView.contentHeaderKind:
+    case TiledSupplementaryViewKind.contentHeaderKind:
       guard headerContentSize.height > 0 else { return nil }
       let attrs = UICollectionViewLayoutAttributes(
         forSupplementaryViewOfKind: elementKind,
@@ -199,7 +199,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
       return attrs
 
-    case TiledSupplementaryView.typingIndicatorKind:
+    case TiledSupplementaryViewKind.typingIndicatorKind:
       guard typingIndicatorSize.height > 0 else { return nil }
       let attrs = UICollectionViewLayoutAttributes(
         forSupplementaryViewOfKind: elementKind,
@@ -220,7 +220,7 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
       )
       return attrs
 
-    case TiledSupplementaryView.footerKind:
+    case TiledSupplementaryViewKind.footerKind:
       guard footerSize.height > 0 else { return nil }
       let attrs = UICollectionViewLayoutAttributes(
         forSupplementaryViewOfKind: elementKind,
@@ -316,13 +316,13 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
         height: newHeight
       )
       switch preferredAttributes.representedElementKind {
-      case TiledSupplementaryView.contentHeaderKind:
+      case TiledSupplementaryViewKind.contentHeaderKind:
         headerContentSize = newSize
-      case TiledSupplementaryView.headerKind:
+      case TiledSupplementaryViewKind.headerKind:
         headerSize = newSize
-      case TiledSupplementaryView.footerKind:
+      case TiledSupplementaryViewKind.footerKind:
         footerSize = newSize
-      case TiledSupplementaryView.typingIndicatorKind:
+      case TiledSupplementaryViewKind.typingIndicatorKind:
         typingIndicatorSize = newSize
       default:
         break

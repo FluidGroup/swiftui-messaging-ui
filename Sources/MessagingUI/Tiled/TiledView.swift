@@ -398,8 +398,11 @@ final class TiledUIView<
     updateHeaderContentVisibility()
   }
 
-  /// Prototype view for measuring loading indicator size
-  private let sizingSupplementaryView = TiledSupplementaryView()
+  /// Prototype views for measuring supplementary content size
+  private let prependSizingSupplementaryView = TiledSupplementaryView<PrependLoadingView>()
+  private let appendSizingSupplementaryView = TiledSupplementaryView<AppendLoadingView>()
+  private let typingIndicatorSizingSupplementaryView = TiledSupplementaryView<TypingIndicatorView>()
+  private let headerContentSizingSupplementaryView = TiledSupplementaryView<HeaderContentView>()
 
   /// Additional content inset for keyboard, headers, footers, etc.
   var additionalContentInset: EdgeInsets = .init() {
@@ -523,27 +526,32 @@ final class TiledUIView<
       
       collectionView.register(TiledViewCell.self, forCellWithReuseIdentifier: TiledViewCell.reuseIdentifier)
 
-      // Register supplementary views for loading indicators and typing indicator
-      collectionView.register(
-        TiledSupplementaryView.self,
-        forSupplementaryViewOfKind: TiledSupplementaryView.headerKind,
-        withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
+      // Register supplementary views separately so each SwiftUI content type gets its own reuse pool.
+      registerSupplementaryView(
+        TiledSupplementaryView<PrependLoadingView>.self,
+        kind: TiledSupplementaryViewKind.headerKind
       )
-      collectionView.register(
-        TiledSupplementaryView.self,
-        forSupplementaryViewOfKind: TiledSupplementaryView.footerKind,
-        withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
+      registerSupplementaryView(
+        TiledSupplementaryView<AppendLoadingView>.self,
+        kind: TiledSupplementaryViewKind.footerKind
       )
-      collectionView.register(
-        TiledSupplementaryView.self,
-        forSupplementaryViewOfKind: TiledSupplementaryView.typingIndicatorKind,
-        withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
+      registerSupplementaryView(
+        TiledSupplementaryView<TypingIndicatorView>.self,
+        kind: TiledSupplementaryViewKind.typingIndicatorKind
       )
-      collectionView.register(
-        TiledSupplementaryView.self,
-        forSupplementaryViewOfKind: TiledSupplementaryView.contentHeaderKind,
-        withReuseIdentifier: TiledSupplementaryView.reuseIdentifier
+      registerSupplementaryView(
+        TiledSupplementaryView<HeaderContentView>.self,
+        kind: TiledSupplementaryViewKind.contentHeaderKind
       )
+      [
+        TiledSupplementaryViewKind.headerKind,
+        TiledSupplementaryViewKind.footerKind,
+        TiledSupplementaryViewKind.typingIndicatorKind,
+        TiledSupplementaryViewKind.contentHeaderKind,
+      ]
+      .forEach {
+        registerSupplementaryView(TiledSupplementaryView<EmptyView>.self, kind: $0)
+      }
 
       do {
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTapBackground(_:)))
@@ -857,39 +865,97 @@ final class TiledUIView<
     return cell
   }
 
+  private func registerSupplementaryView<Content: View>(
+    _ supplementaryViewClass: TiledSupplementaryView<Content>.Type,
+    kind: String
+  ) {
+    collectionView.register(
+      supplementaryViewClass,
+      forSupplementaryViewOfKind: kind,
+      withReuseIdentifier: supplementaryViewClass.reuseIdentifier(for: kind)
+    )
+  }
+
+  private func dequeueSupplementaryView<Content: View>(
+    _ collectionView: UICollectionView,
+    ofKind kind: String,
+    at indexPath: IndexPath,
+    content: Content
+  ) -> UICollectionReusableView {
+    let view = collectionView.dequeueReusableSupplementaryView(
+      ofKind: kind,
+      withReuseIdentifier: TiledSupplementaryView<Content>.reuseIdentifier(for: kind),
+      for: indexPath
+    ) as! TiledSupplementaryView<Content>
+
+    view.configure(with: content)
+    return view
+  }
+
+  private func dequeueEmptySupplementaryView(
+    _ collectionView: UICollectionView,
+    ofKind kind: String,
+    at indexPath: IndexPath
+  ) -> UICollectionReusableView {
+    dequeueSupplementaryView(
+      collectionView,
+      ofKind: kind,
+      at: indexPath,
+      content: EmptyView()
+    )
+  }
+
   func collectionView(
     _ collectionView: UICollectionView,
     viewForSupplementaryElementOfKind kind: String,
     at indexPath: IndexPath
   ) -> UICollectionReusableView {
-    let view = collectionView.dequeueReusableSupplementaryView(
-      ofKind: kind,
-      withReuseIdentifier: TiledSupplementaryView.reuseIdentifier,
-      for: indexPath
-    ) as! TiledSupplementaryView
-
     switch kind {
-    case TiledSupplementaryView.headerKind:
+    case TiledSupplementaryViewKind.headerKind:
       if let loader = prependTrigger.loader {
-        view.configure(with: loader.indicator)
+        return dequeueSupplementaryView(
+          collectionView,
+          ofKind: kind,
+          at: indexPath,
+          content: loader.indicator
+        )
       }
-    case TiledSupplementaryView.typingIndicatorKind:
+    case TiledSupplementaryViewKind.typingIndicatorKind:
       if let indicator = typingIndicator, indicator.isVisible {
-        view.configure(with: indicator.content)
+        return dequeueSupplementaryView(
+          collectionView,
+          ofKind: kind,
+          at: indexPath,
+          content: indicator.content
+        )
       }
-    case TiledSupplementaryView.contentHeaderKind:
+    case TiledSupplementaryViewKind.contentHeaderKind:
       if let header = headerContent {
-        view.configure(with: header.content)
+        return dequeueSupplementaryView(
+          collectionView,
+          ofKind: kind,
+          at: indexPath,
+          content: header.content
+        )
       }
-    case TiledSupplementaryView.footerKind:
+    case TiledSupplementaryViewKind.footerKind:
       if let loader = appendTrigger.loader {
-        view.configure(with: loader.indicator)
+        return dequeueSupplementaryView(
+          collectionView,
+          ofKind: kind,
+          at: indexPath,
+          content: loader.indicator
+        )
       }
     default:
       break
     }
 
-    return view
+    return dequeueEmptySupplementaryView(
+      collectionView,
+      ofKind: kind,
+      at: indexPath
+    )
   }
 
   // MARK: UICollectionViewDelegate
@@ -1176,7 +1242,12 @@ final class TiledUIView<
     // Measure header size
     let headerHeight: CGFloat
     if prependTrigger.isLoading, let loader = prependTrigger.loader {
-      headerHeight = measureLoadingIndicatorSize(loader.indicator, width: boundsWidth).height
+      headerHeight = measureSupplementarySize(
+        loader.indicator,
+        width: boundsWidth,
+        using: prependSizingSupplementaryView
+      )
+      .height
     } else {
       headerHeight = 0
     }
@@ -1184,7 +1255,12 @@ final class TiledUIView<
     // Measure footer size
     let footerHeight: CGFloat
     if appendTrigger.isLoading, let loader = appendTrigger.loader {
-      footerHeight = measureLoadingIndicatorSize(loader.indicator, width: boundsWidth).height
+      footerHeight = measureSupplementarySize(
+        loader.indicator,
+        width: boundsWidth,
+        using: appendSizingSupplementaryView
+      )
+      .height
     } else {
       footerHeight = 0
     }
@@ -1247,9 +1323,10 @@ final class TiledUIView<
     // Measure typing indicator size
     let typingHeight: CGFloat
     if let indicator = typingIndicator, isVisible {
-      typingHeight = measureLoadingIndicatorSize(
+      typingHeight = measureSupplementarySize(
         indicator.content,
-        width: boundsWidth
+        width: boundsWidth,
+        using: typingIndicatorSizingSupplementaryView
       )
       .height
     } else {
@@ -1314,7 +1391,12 @@ final class TiledUIView<
 
     let headerContentHeight: CGFloat
     if let header = headerContent {
-      headerContentHeight = measureLoadingIndicatorSize(header.content, width: boundsWidth).height
+      headerContentHeight = measureSupplementarySize(
+        header.content,
+        width: boundsWidth,
+        using: headerContentSizingSupplementaryView
+      )
+      .height
     } else {
       headerContentHeight = 0
     }
@@ -1323,7 +1405,11 @@ final class TiledUIView<
     tiledLayout.invalidateLayout()
   }
 
-  private func measureLoadingIndicatorSize<V: View>(_ view: V, width: CGFloat) -> CGSize {
+  private func measureSupplementarySize<V: View>(
+    _ view: V,
+    width: CGFloat,
+    using sizingSupplementaryView: TiledSupplementaryView<V>
+  ) -> CGSize {
     sizingSupplementaryView.configure(with: view)
     sizingSupplementaryView.bounds.size.width = width
     sizingSupplementaryView.layoutIfNeeded()
