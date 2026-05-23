@@ -8,9 +8,11 @@
 import SwiftUI
 import UIKit
 
-final class TiledViewCell: UICollectionViewCell {
+final class TiledViewCell<Content: View>: UICollectionViewCell {
 
-  static let reuseIdentifier = "TiledViewCell"
+  static func reuseIdentifier(for kind: String) -> String {
+    "\(String(reflecting: Self.self)):\(kind)"
+  }
 
   // MARK: - Safe Area Override
 
@@ -23,7 +25,8 @@ final class TiledViewCell: UICollectionViewCell {
 
   // MARK: - Configuration
 
-  func configure<Content: View>(with content: Content) {
+  func configure(with content: Content) {
+    contentView.alpha = 1
     contentConfiguration = UIHostingConfiguration {
       content
     }
@@ -32,6 +35,7 @@ final class TiledViewCell: UICollectionViewCell {
 
   override func prepareForReuse() {
     super.prepareForReuse()
+    contentView.alpha = 1
     contentConfiguration = nil
   }
 

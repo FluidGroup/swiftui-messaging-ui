@@ -414,7 +414,7 @@ struct BookTiledViewTypingIndicator: View {
       .frame(maxWidth: .infinity)
       .padding()
     })
-    .typingIndicator(.indicator(isVisible: isTyping) {
+    .typingIndicator(.indicator(isVisible: isTyping) { phase in
       HStack(spacing: 8) {
         TypingDotsView()
         Text("Someone is typing...")
@@ -425,6 +425,9 @@ struct BookTiledViewTypingIndicator: View {
       .padding(.horizontal, 16)
       .padding(.vertical, 12)
       .background(Color(.systemGray6))
+      .opacity(phase == .dismissing ? 0 : 1)
+      .offset(y: phase == .appearing ? 8 : phase == .dismissing ? 8 : 0)
+      .animation(.snappy, value: phase)
     })
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {

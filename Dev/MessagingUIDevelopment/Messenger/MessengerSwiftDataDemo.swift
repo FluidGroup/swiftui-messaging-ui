@@ -312,7 +312,7 @@ struct MessengerSwiftDataDemo: View {
   @State private var store: ChatStore?
   @State private var inputText = ""
   @State private var scrollPosition: TiledScrollPosition
-  @State private var scrollGeometry: TiledScrollGeometry?
+  @State private var isNearBottom = true
   @State private var isTyping = false
   @FocusState private var isInputFocused: Bool
 
@@ -322,11 +322,6 @@ struct MessengerSwiftDataDemo: View {
       autoScrollsToBottomOnAppend: loadPosition == .end,
       scrollsToBottomOnReplace: loadPosition == .end
     ))
-  }
-
-  private var isNearBottom: Bool {
-    guard let geometry = scrollGeometry else { return true }
-    return geometry.pointsFromBottom < 100
   }
 
   var body: some View {
@@ -444,7 +439,11 @@ struct MessengerSwiftDataDemo: View {
           store.deleteMessage(id: message.id)
         }
       }
+      .headerContent(.header(content: {
+        Color.blue.frame(height: 200)
+      }))
       .prependLoader(.loader(perform: {
+        guard store.hasMore else { return }
         await store.loadOlder()
       }) {
         HStack(spacing: 8) {
@@ -457,6 +456,7 @@ struct MessengerSwiftDataDemo: View {
         .padding(.vertical, 12)
       })
       .appendLoader(.loader(perform: {
+        guard store.hasNewer else { return }
         await store.loadNewer()
       }) {
         HStack(spacing: 8) {
@@ -487,10 +487,15 @@ struct MessengerSwiftDataDemo: View {
         isInputFocused = false
       }
       .onTiledScrollGeometryChange { geometry in
-        scrollGeometry = geometry
+        let nextIsNearBottom = geometry.pointsFromBottom < 100
+        if isNearBottom != nextIsNearBottom {
+          isNearBottom = nextIsNearBottom
+        }
         // Auto-scroll to bottom when near bottom and no newer messages
         if !store.hasNewer {
-          scrollPosition.autoScrollsToBottomOnAppend = isNearBottom
+          if scrollPosition.autoScrollsToBottomOnAppend != nextIsNearBottom {
+            scrollPosition.autoScrollsToBottomOnAppend = nextIsNearBottom
+          }
         }
       }
 
