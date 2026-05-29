@@ -1076,7 +1076,6 @@ final class TiledUIView<
         guard let self else { return }
         
         if scrollsToBottomOnReplace {
-          print("🍔", "replae: scroll-to-bottom")
           scrollTo(edge: .bottom, animated: false)
         }
       }
