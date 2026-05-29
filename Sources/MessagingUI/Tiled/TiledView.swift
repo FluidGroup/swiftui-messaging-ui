@@ -1079,6 +1079,7 @@ final class TiledUIView<
           scrollTo(edge: .bottom, animated: false)
         }
       }
+      setNeedsLayout()
       completion()
 
     case .prepend(let newItems):
