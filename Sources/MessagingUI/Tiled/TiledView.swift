@@ -63,6 +63,9 @@ private struct EdgeLoadTrigger<Indicator: View>: ~Copyable {
   /// Whether the indicator is currently included in the visible content bounds.
   var isIndicatorVisible: Bool = false
 
+  /// Whether the indicator is being scrolled out before it leaves content bounds.
+  var isAnimatingIndicatorRemoval: Bool = false
+
   /// Generation token used to cancel deferred indicator presentation.
   var indicatorVisibilityGeneration: UInt = 0
 
@@ -395,6 +398,7 @@ final class TiledUIView<
   private var prependTrigger = EdgeLoadTrigger<PrependLoadingView>()
   private var appendTrigger = EdgeLoadTrigger<AppendLoadingView>()
   private let loadingIndicatorHideDelay: TimeInterval = 0.12
+  private let loadingIndicatorRemovalAnimationDuration: TimeInterval = 0.55
 
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
@@ -1376,9 +1380,14 @@ final class TiledUIView<
           guard let self else { return }
           guard self.prependTrigger.indicatorVisibilityGeneration == generation else { return }
           guard self.prependTrigger.isLoading else { return }
+          if self.prependTrigger.isAnimatingIndicatorRemoval {
+            self.springAnimator?.stop(finished: false)
+            self.springAnimator = nil
+          }
           self.prependTrigger.indicatorHideWorkItem?.cancel()
           self.prependTrigger.indicatorHideWorkItem = nil
           self.prependTrigger.pendingIndicatorHideGeneration = nil
+          self.prependTrigger.isAnimatingIndicatorRemoval = false
           self.prependTrigger.isIndicatorVisible = true
           self.updateLoadingIndicatorVisibility()
         }
@@ -1416,9 +1425,14 @@ final class TiledUIView<
           guard let self else { return }
           guard self.appendTrigger.indicatorVisibilityGeneration == generation else { return }
           guard self.appendTrigger.isLoading else { return }
+          if self.appendTrigger.isAnimatingIndicatorRemoval {
+            self.springAnimator?.stop(finished: false)
+            self.springAnimator = nil
+          }
           self.appendTrigger.indicatorHideWorkItem?.cancel()
           self.appendTrigger.indicatorHideWorkItem = nil
           self.appendTrigger.pendingIndicatorHideGeneration = nil
+          self.appendTrigger.isAnimatingIndicatorRemoval = false
           self.appendTrigger.isIndicatorVisible = true
           self.updateLoadingIndicatorVisibility()
         }
@@ -1690,18 +1704,28 @@ final class TiledUIView<
   // MARK: - Loading Indicator Management
 
   private func resetPrependLoadingIndicatorVisibility() {
+    if prependTrigger.isAnimatingIndicatorRemoval {
+      springAnimator?.stop(finished: false)
+      springAnimator = nil
+    }
     prependTrigger.indicatorVisibilityGeneration &+= 1
     prependTrigger.indicatorHideWorkItem?.cancel()
     prependTrigger.indicatorHideWorkItem = nil
     prependTrigger.pendingIndicatorHideGeneration = nil
+    prependTrigger.isAnimatingIndicatorRemoval = false
     prependTrigger.isIndicatorVisible = false
   }
 
   private func resetAppendLoadingIndicatorVisibility() {
+    if appendTrigger.isAnimatingIndicatorRemoval {
+      springAnimator?.stop(finished: false)
+      springAnimator = nil
+    }
     appendTrigger.indicatorVisibilityGeneration &+= 1
     appendTrigger.indicatorHideWorkItem?.cancel()
     appendTrigger.indicatorHideWorkItem = nil
     appendTrigger.pendingIndicatorHideGeneration = nil
+    appendTrigger.isAnimatingIndicatorRemoval = false
     appendTrigger.isIndicatorVisible = false
   }
 
@@ -1709,9 +1733,14 @@ final class TiledUIView<
     guard prependTrigger.loader?.isProcessing != nil else { return }
 
     if prependTrigger.isLoading {
+      if prependTrigger.isAnimatingIndicatorRemoval {
+        springAnimator?.stop(finished: false)
+        springAnimator = nil
+      }
       prependTrigger.indicatorHideWorkItem?.cancel()
       prependTrigger.indicatorHideWorkItem = nil
       prependTrigger.pendingIndicatorHideGeneration = nil
+      prependTrigger.isAnimatingIndicatorRemoval = false
       prependTrigger.isIndicatorVisible = true
     } else if prependTrigger.isIndicatorVisible {
       requestPrependLoadingIndicatorHide(generation: prependTrigger.indicatorVisibilityGeneration)
@@ -1722,9 +1751,14 @@ final class TiledUIView<
     guard appendTrigger.loader?.isProcessing != nil else { return }
 
     if appendTrigger.isLoading {
+      if appendTrigger.isAnimatingIndicatorRemoval {
+        springAnimator?.stop(finished: false)
+        springAnimator = nil
+      }
       appendTrigger.indicatorHideWorkItem?.cancel()
       appendTrigger.indicatorHideWorkItem = nil
       appendTrigger.pendingIndicatorHideGeneration = nil
+      appendTrigger.isAnimatingIndicatorRemoval = false
       appendTrigger.isIndicatorVisible = true
     } else if appendTrigger.isIndicatorVisible {
       requestAppendLoadingIndicatorHide(generation: appendTrigger.indicatorVisibilityGeneration)
@@ -1774,26 +1808,163 @@ final class TiledUIView<
     guard !isApplyingItemChanges else { return }
     guard prependTrigger.pendingIndicatorHideGeneration == generation else { return }
     guard prependTrigger.indicatorVisibilityGeneration == generation else { return }
+    guard !prependTrigger.isAnimatingIndicatorRemoval else { return }
 
-    prependTrigger.indicatorHideWorkItem?.cancel()
-    prependTrigger.indicatorHideWorkItem = nil
-    prependTrigger.pendingIndicatorHideGeneration = nil
-    prependTrigger.indicatorVisibilityGeneration &+= 1
-    prependTrigger.isIndicatorVisible = false
-    updateLoadingIndicatorVisibility()
+    if animatePrependLoadingIndicatorRemovalIfNeeded(generation: generation) {
+      return
+    }
+
+    completePrependLoadingIndicatorHide(generation: generation, clampAnimated: true)
   }
 
   private func finishAppendLoadingIndicatorHide(generation: UInt) {
     guard !isApplyingItemChanges else { return }
     guard appendTrigger.pendingIndicatorHideGeneration == generation else { return }
     guard appendTrigger.indicatorVisibilityGeneration == generation else { return }
+    guard !appendTrigger.isAnimatingIndicatorRemoval else { return }
+
+    if animateAppendLoadingIndicatorRemovalIfNeeded(generation: generation) {
+      return
+    }
+
+    completeAppendLoadingIndicatorHide(generation: generation, clampAnimated: true)
+  }
+
+  private func completePrependLoadingIndicatorHide(
+    generation: UInt,
+    clampAnimated: Bool
+  ) {
+    guard prependTrigger.pendingIndicatorHideGeneration == generation else { return }
+    guard prependTrigger.indicatorVisibilityGeneration == generation else { return }
+
+    prependTrigger.indicatorHideWorkItem?.cancel()
+    prependTrigger.indicatorHideWorkItem = nil
+    prependTrigger.pendingIndicatorHideGeneration = nil
+    prependTrigger.isAnimatingIndicatorRemoval = false
+    prependTrigger.indicatorVisibilityGeneration &+= 1
+    prependTrigger.isIndicatorVisible = false
+    updateLoadingIndicatorVisibility()
+    collectionView.layoutIfNeeded()
+    clampContentOffsetToScrollableBounds(animated: clampAnimated)
+  }
+
+  private func completeAppendLoadingIndicatorHide(
+    generation: UInt,
+    clampAnimated: Bool
+  ) {
+    guard appendTrigger.pendingIndicatorHideGeneration == generation else { return }
+    guard appendTrigger.indicatorVisibilityGeneration == generation else { return }
 
     appendTrigger.indicatorHideWorkItem?.cancel()
     appendTrigger.indicatorHideWorkItem = nil
     appendTrigger.pendingIndicatorHideGeneration = nil
+    appendTrigger.isAnimatingIndicatorRemoval = false
     appendTrigger.indicatorVisibilityGeneration &+= 1
     appendTrigger.isIndicatorVisible = false
     updateLoadingIndicatorVisibility()
+    collectionView.layoutIfNeeded()
+    clampContentOffsetToScrollableBounds(animated: clampAnimated)
+  }
+
+  private func animatePrependLoadingIndicatorRemovalIfNeeded(generation: UInt) -> Bool {
+    guard let attributes = layoutAttributesForAccessoryDisplayItem(.prependLoader),
+          attributes.frame.height > 0 else {
+      return false
+    }
+
+    let scrollableBounds = scrollableContentOffsetBounds()
+    let targetOffsetY = min(
+      scrollableBounds.max,
+      scrollableBounds.min + attributes.frame.height
+    )
+    guard collectionView.contentOffset.y < targetOffsetY - 0.5 else { return false }
+
+    prependTrigger.isAnimatingIndicatorRemoval = true
+    schedulePrependLoadingIndicatorRemovalCompletion(generation: generation)
+    scrollToContentOffsetY(
+      targetOffsetY,
+      animated: true,
+      spring: Spring(duration: loadingIndicatorRemovalAnimationDuration, bounce: 0)
+    ) { [weak self] in
+      self?.completePrependLoadingIndicatorHide(
+        generation: generation,
+        clampAnimated: false
+      )
+    }
+    return true
+  }
+
+  private func animateAppendLoadingIndicatorRemovalIfNeeded(generation: UInt) -> Bool {
+    guard let attributes = layoutAttributesForAccessoryDisplayItem(.appendLoader),
+          attributes.frame.height > 0 else {
+      return false
+    }
+
+    let scrollableBounds = scrollableContentOffsetBounds()
+    let targetOffsetY = max(
+      scrollableBounds.min,
+      scrollableBounds.max - attributes.frame.height
+    )
+    guard collectionView.contentOffset.y > targetOffsetY + 0.5 else { return false }
+
+    appendTrigger.isAnimatingIndicatorRemoval = true
+    scheduleAppendLoadingIndicatorRemovalCompletion(generation: generation)
+    scrollToContentOffsetY(
+      targetOffsetY,
+      animated: true,
+      spring: Spring(duration: loadingIndicatorRemovalAnimationDuration, bounce: 0)
+    ) { [weak self] in
+      self?.completeAppendLoadingIndicatorHide(
+        generation: generation,
+        clampAnimated: false
+      )
+    }
+    return true
+  }
+
+  private func schedulePrependLoadingIndicatorRemovalCompletion(generation: UInt) {
+    prependTrigger.indicatorHideWorkItem?.cancel()
+
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.completePrependLoadingIndicatorHide(
+        generation: generation,
+        clampAnimated: false
+      )
+    }
+    prependTrigger.indicatorHideWorkItem = workItem
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + loadingIndicatorRemovalAnimationDuration,
+      execute: workItem
+    )
+  }
+
+  private func scheduleAppendLoadingIndicatorRemovalCompletion(generation: UInt) {
+    appendTrigger.indicatorHideWorkItem?.cancel()
+
+    let workItem = DispatchWorkItem { [weak self] in
+      self?.completeAppendLoadingIndicatorHide(
+        generation: generation,
+        clampAnimated: false
+      )
+    }
+    appendTrigger.indicatorHideWorkItem = workItem
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + loadingIndicatorRemovalAnimationDuration,
+      execute: workItem
+    )
+  }
+
+  private func layoutAttributesForAccessoryDisplayItem(
+    _ displayItem: AccessoryDisplayItem
+  ) -> UICollectionViewLayoutAttributes? {
+    collectionView.layoutIfNeeded()
+
+    guard let indexPath = indexPath(for: displayItem),
+          let attributes = tiledLayout.layoutAttributesForItem(at: indexPath) else {
+      return nil
+    }
+
+    return attributes
   }
 
   private func updateLoadingIndicatorVisibility() {

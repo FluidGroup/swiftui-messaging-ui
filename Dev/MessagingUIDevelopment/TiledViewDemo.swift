@@ -228,11 +228,12 @@ struct BookTiledView: View {
 
 // MARK: - Loading Indicator Demo
 
+/// Demonstrates manually controlled prepend and append loading indicators.
 struct BookTiledViewLoadingIndicator: View {
 
-  @State private var messages: [ChatMessage] = []
+  @State private var messages: [ChatMessage] = generateSampleMessages(count: 8, startId: 0)
   @State private var nextPrependId = -1
-  @State private var nextAppendId = 0
+  @State private var nextAppendId = 8
   @State private var scrollPosition = TiledScrollPosition()
   @State private var isPrependLoading = false
   @State private var isAppendLoading = false
@@ -274,63 +275,57 @@ struct BookTiledViewLoadingIndicator: View {
     .safeAreaInset(edge: .bottom) {
       VStack(spacing: 0) {
         Divider()
-        HStack {
-          Text("\(messages.count) items")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-          Spacer()
-          HStack(spacing: 8) {
-            if isPrependLoading {
-              Text("Prepend...")
-                .font(.caption2)
-                .foregroundStyle(.orange)
+        VStack(spacing: 10) {
+          HStack {
+            Text("\(messages.count) items")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            Spacer()
+            HStack(spacing: 8) {
+              if isPrependLoading {
+                Text("Prepend")
+                  .font(.caption2)
+                  .foregroundStyle(.orange)
+              }
+              if isAppendLoading {
+                Text("Append")
+                  .font(.caption2)
+                  .foregroundStyle(.orange)
+              }
             }
-            if isAppendLoading {
-              Text("Append...")
-                .font(.caption2)
-                .foregroundStyle(.orange)
+          }
+
+          HStack(spacing: 12) {
+            Toggle(isOn: $isPrependLoading) {
+              Label("Prepend", systemImage: "arrow.up.circle")
             }
+            .toggleStyle(.button)
+
+            Toggle(isOn: $isAppendLoading) {
+              Label("Append", systemImage: "arrow.down.circle")
+            }
+            .toggleStyle(.button)
+
+            Spacer()
           }
         }
         .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
       }
       .background(.bar)
     }
     .toolbar {
       ToolbarItemGroup(placement: .bottomBar) {
-        // Toggle Prepend Loading
         Button {
-          isPrependLoading.toggle()
-          if isPrependLoading {
-            // Simulate loading and prepend after 2 seconds
-            Task {
-              try? await Task.sleep(for: .seconds(2))
-              let newMessages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
-              messages.insert(contentsOf: newMessages, at: 0)
-              nextPrependId -= 5
-              isPrependLoading = false
-            }
-          }
+          prependMessages()
         } label: {
-          Label("Load Older", systemImage: isPrependLoading ? "hourglass" : "arrow.up.doc")
+          Label("Prepend 5", systemImage: "arrow.up.doc")
         }
 
-        // Toggle Append Loading
         Button {
-          isAppendLoading.toggle()
-          if isAppendLoading {
-            // Simulate loading and append after 2 seconds
-            Task {
-              try? await Task.sleep(for: .seconds(2))
-              let newMessages = generateSampleMessages(count: 5, startId: nextAppendId)
-              messages.append(contentsOf: newMessages)
-              nextAppendId += 5
-              isAppendLoading = false
-            }
-          }
+          appendMessages()
         } label: {
-          Label("Load Newer", systemImage: isAppendLoading ? "hourglass" : "arrow.down.doc")
+          Label("Append 5", systemImage: "arrow.down.doc")
         }
 
         Spacer()
@@ -352,18 +347,33 @@ struct BookTiledViewLoadingIndicator: View {
 
         // Reset
         Button {
-          nextPrependId = -1
-          nextAppendId = 5
-          isPrependLoading = false
-          isAppendLoading = false
-          let newItems = generateSampleMessages(count: 5, startId: 0)
-          messages = newItems
+          resetMessages()
         } label: {
           Image(systemName: "arrow.counterclockwise")
         }
       }
     }
     .navigationTitle("Loading Indicators")
+  }
+
+  private func prependMessages() {
+    let newMessages = generateSampleMessages(count: 5, startId: nextPrependId - 4)
+    messages.insert(contentsOf: newMessages, at: 0)
+    nextPrependId -= 5
+  }
+
+  private func appendMessages() {
+    let newMessages = generateSampleMessages(count: 5, startId: nextAppendId)
+    messages.append(contentsOf: newMessages)
+    nextAppendId += 5
+  }
+
+  private func resetMessages() {
+    nextPrependId = -1
+    nextAppendId = 8
+    isPrependLoading = false
+    isAppendLoading = false
+    messages = generateSampleMessages(count: 8, startId: 0)
   }
 }
 
