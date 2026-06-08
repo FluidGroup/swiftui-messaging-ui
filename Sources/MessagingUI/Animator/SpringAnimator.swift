@@ -8,7 +8,7 @@
 import QuartzCore
 import SwiftUI
 
-/// A CADisplayLink-based animator that uses SwiftUI.Spring for smooth animations.
+/// A CADisplayLink-based animator that uses SwiftUI.Spring for spring-driven animations.
 /// This is a generic animator that doesn't depend on any specific UI component.
 @MainActor
 final class SpringAnimator {
@@ -74,8 +74,8 @@ final class SpringAnimator {
   // MARK: - Initialization
 
   /// Creates a new SpringAnimator with the specified spring configuration.
-  /// - Parameter spring: The spring to use for animation. Defaults to `.smooth`.
-  init(spring: Spring = .smooth) {
+  /// - Parameter spring: The spring to use for animation. Defaults to `.snappy`.
+  init(spring: Spring = .snappy) {
     self.spring = spring
   }
 
