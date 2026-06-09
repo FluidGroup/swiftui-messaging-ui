@@ -44,6 +44,19 @@ fileprivate extension UIEdgeInsets {
       right: lhs.right - rhs.right
     )
   }
+
+  func interpolated(
+    to target: UIEdgeInsets,
+    progress: CGFloat
+  ) -> UIEdgeInsets {
+    let progress = min(max(progress, 0), 1)
+    return UIEdgeInsets(
+      top: top + (target.top - top) * progress,
+      left: left + (target.left - left) * progress,
+      bottom: bottom + (target.bottom - bottom) * progress,
+      right: right + (target.right - right) * progress
+    )
+  }
 }
 
 // MARK: - EdgeLoadTrigger
@@ -90,6 +103,15 @@ private struct EdgeLoadTrigger<Indicator: View>: ~Copyable {
   var shouldShowIndicator: Bool {
     loader != nil && isIndicatorVisible
   }
+}
+
+/// Describes why prepend loading is being requested.
+private enum PrependLoadTriggerSource {
+  /// The user has scrolled near the top edge through the normal scroll path.
+  case edgeThreshold
+
+  /// The user tapped the status bar and UIKit is about to scroll to the top.
+  case scrollToTop
 }
 
 /// MARK: - RevealGestureState
@@ -395,12 +417,27 @@ final class TiledUIView<
   private var prependTrigger = EdgeLoadTrigger<PrependLoadingView>()
   private var appendTrigger = EdgeLoadTrigger<AppendLoadingView>()
   private let loadingIndicatorHideDelay: TimeInterval = 0.12
+  private let loadingIndicatorRemovalAnimationDuration: TimeInterval = 0.55
 
   /// Scroll position tracking
   private var lastAppliedScrollVersion: UInt = 0
 
-  /// Spring animator for smooth scroll animations
+  /// Spring animator for programmatic scroll animations.
   private var springAnimator: SpringScrollAnimator?
+
+  /// Spring animator for edge content inset changes caused by hiding loaders.
+  private var hiddenEdgeContentInsetAnimator: SpringAnimator?
+  private var hiddenEdgeContentInsetAnimationTarget: UIEdgeInsets?
+  private var hiddenEdgeContentInsetAnimationGeneration: UInt = 0
+
+  /// Whether the current scroll movement was initiated by the user's pan gesture.
+  private var isUserScrollSessionActive: Bool = false
+
+  /// Whether a status-bar scroll-to-top request is waiting for prepend loading to settle.
+  private var isPrependLoadRequestedByScrollToTop: Bool = false
+
+  /// Whether the pending status-bar request has observed the external loading state.
+  private var hasScrollToTopPrependLoadObservedProcessing: Bool = false
 
   /// True while the typing indicator is being scrolled out before removal.
   private var isAnimatingTypingIndicatorRemoval: Bool = false
@@ -949,9 +986,74 @@ final class TiledUIView<
     measureSize(for: displayItem, width: collectionView.bounds.width)?.height ?? 0
   }
 
-  private func updateHiddenEdgeContentInset() {
+  private func updateHiddenEdgeContentInset(animated: Bool = false) {
     guard collectionView != nil else { return }
 
+    setHiddenEdgeContentInset(
+      hiddenEdgeContentInset(),
+      animated: animated
+    )
+  }
+
+  private func setHiddenEdgeContentInset(
+    _ inset: UIEdgeInsets,
+    animated: Bool
+  ) {
+    if hiddenEdgeContentInsetAnimationTarget == inset {
+      return
+    }
+    guard hiddenEdgeContentInsetAnimator != nil || tiledLayout.hiddenEdgeContentInset != inset else { return }
+
+    hiddenEdgeContentInsetAnimationGeneration &+= 1
+    let generation = hiddenEdgeContentInsetAnimationGeneration
+    hiddenEdgeContentInsetAnimator?.stop(finished: false)
+    hiddenEdgeContentInsetAnimator = nil
+    hiddenEdgeContentInsetAnimationTarget = nil
+
+    guard tiledLayout.hiddenEdgeContentInset != inset else { return }
+
+    guard animated else {
+      tiledLayout.hiddenEdgeContentInset = inset
+      return
+    }
+
+    collectionView.layoutIfNeeded()
+    let startInset = tiledLayout.hiddenEdgeContentInset
+    let animator = SpringAnimator(
+      spring: Spring(duration: loadingIndicatorRemovalAnimationDuration, bounce: 0)
+    )
+    hiddenEdgeContentInsetAnimator = animator
+    hiddenEdgeContentInsetAnimationTarget = inset
+
+    // Animate the inset value frame-by-frame so UIScrollView receives each
+    // contentInset change and can apply its built-in contentOffset adjustment.
+    animator.animate(
+      from: 0,
+      to: 1,
+      onUpdate: { [weak self] progress in
+        guard let self else { return }
+        guard self.hiddenEdgeContentInsetAnimationGeneration == generation else { return }
+
+        self.tiledLayout.hiddenEdgeContentInset = startInset.interpolated(
+          to: inset,
+          progress: CGFloat(progress)
+        )
+        self.collectionView.layoutIfNeeded()
+      },
+      completion: { [weak self] _ in
+        guard let self else { return }
+        guard self.hiddenEdgeContentInsetAnimationGeneration == generation else { return }
+
+        self.hiddenEdgeContentInsetAnimator = nil
+        self.hiddenEdgeContentInsetAnimationTarget = nil
+        self.tiledLayout.hiddenEdgeContentInset = inset
+        self.collectionView.layoutIfNeeded()
+        self.clampContentOffsetToScrollableBounds(animated: false)
+      }
+    )
+  }
+
+  private func hiddenEdgeContentInset() -> UIEdgeInsets {
     let top: CGFloat
     if displayedAccessoryState.hasPrependLoader,
        !prependTrigger.shouldShowIndicator {
@@ -972,7 +1074,7 @@ final class TiledUIView<
       bottom += measuredAccessoryHeight(for: .typingIndicator)
     }
 
-    tiledLayout.hiddenEdgeContentInset = UIEdgeInsets(
+    return UIEdgeInsets(
       top: top,
       left: 0,
       bottom: bottom,
@@ -1333,14 +1435,20 @@ final class TiledUIView<
   // MARK: - UIScrollViewDelegate
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    defer {
+      notifyScrollGeometry()
+    }
 
+    guard isUserScrollSessionActive else { return }
+
+    updateEdgeLoadTriggers(scrollView)
+  }
+
+  private func updateEdgeLoadTriggers(_ scrollView: UIScrollView) {
     // Prepend trigger
     let offsetY = scrollView.contentOffset.y + scrollView.contentInset.top
     if offsetY <= prependTrigger.threshold {
-      if !prependTrigger.isTriggered && !prependTrigger.isLoading {
-        prependTrigger.isTriggered = true
-        triggerPrependLoad()
-      }
+      triggerPrependLoadIfNeeded(source: .edgeThreshold)
     } else {
       prependTrigger.isTriggered = false
     }
@@ -1356,8 +1464,26 @@ final class TiledUIView<
     } else {
       appendTrigger.isTriggered = false
     }
+  }
 
-    notifyScrollGeometry()
+  private func triggerPrependLoadIfNeeded(source: PrependLoadTriggerSource) {
+    guard prependTrigger.loader != nil else { return }
+    guard !prependTrigger.isLoading else { return }
+
+    switch source {
+    case .edgeThreshold:
+      guard !prependTrigger.isTriggered else { return }
+    case .scrollToTop:
+      // A status-bar tap is a fresh user intent even when the top-edge trigger
+      // is still latched, but it still needs its own in-flight guard until the
+      // loader reports completion.
+      guard !isPrependLoadRequestedByScrollToTop else { return }
+      isPrependLoadRequestedByScrollToTop = true
+      hasScrollToTopPrependLoadObservedProcessing = false
+    }
+
+    prependTrigger.isTriggered = true
+    triggerPrependLoad()
   }
 
   private func triggerPrependLoad() {
@@ -1385,6 +1511,8 @@ final class TiledUIView<
         defer {
           if let self {
             self.prependTrigger.task = nil
+            self.isPrependLoadRequestedByScrollToTop = false
+            self.hasScrollToTopPrependLoadObservedProcessing = false
             DispatchQueue.main.async { [weak self] in
               guard let self else { return }
               guard self.prependTrigger.indicatorVisibilityGeneration == generation else { return }
@@ -1440,12 +1568,27 @@ final class TiledUIView<
     }
   }
 
+  func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+    isUserScrollSessionActive = false
+    triggerPrependLoadIfNeeded(source: .scrollToTop)
+
+    return true
+  }
+
+  func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+    isUserScrollSessionActive = true
+  }
+
   func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
     hasDraggedIntoBottomSafeArea = false
+    if !decelerate {
+      isUserScrollSessionActive = false
+    }
   }
 
   func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
     hasDraggedIntoBottomSafeArea = false
+    isUserScrollSessionActive = false
   }
 
   private func notifyScrollGeometry() {
@@ -1583,6 +1726,7 @@ final class TiledUIView<
   }
   
   private func scrollTo(edge: TiledScrollPosition.Edge, animated: Bool) {
+    isUserScrollSessionActive = false
 
     collectionView.layoutIfNeeded()
 
@@ -1594,7 +1738,7 @@ final class TiledUIView<
     collectionView.setContentOffset(collectionView.contentOffset, animated: false)
 
     if animated {
-      let animator = SpringScrollAnimator(spring: .smooth)
+      let animator = SpringScrollAnimator()
       springAnimator = animator
 
       // Use dynamic target provider to adapt to contentInset changes mid-animation
@@ -1665,9 +1809,10 @@ final class TiledUIView<
   private func scrollToContentOffsetY(
     _ offsetY: CGFloat,
     animated: Bool,
-    spring: Spring = .smooth,
+    spring: Spring = .snappy,
     completion: (() -> Void)? = nil
   ) {
+    isUserScrollSessionActive = false
     springAnimator?.stop(finished: false)
     springAnimator = nil
     collectionView.setContentOffset(collectionView.contentOffset, animated: false)
@@ -1695,6 +1840,8 @@ final class TiledUIView<
     prependTrigger.indicatorHideWorkItem = nil
     prependTrigger.pendingIndicatorHideGeneration = nil
     prependTrigger.isIndicatorVisible = false
+    isPrependLoadRequestedByScrollToTop = false
+    hasScrollToTopPrependLoadObservedProcessing = false
   }
 
   private func resetAppendLoadingIndicatorVisibility() {
@@ -1709,12 +1856,21 @@ final class TiledUIView<
     guard prependTrigger.loader?.isProcessing != nil else { return }
 
     if prependTrigger.isLoading {
+      if isPrependLoadRequestedByScrollToTop {
+        hasScrollToTopPrependLoadObservedProcessing = true
+      }
       prependTrigger.indicatorHideWorkItem?.cancel()
       prependTrigger.indicatorHideWorkItem = nil
       prependTrigger.pendingIndicatorHideGeneration = nil
       prependTrigger.isIndicatorVisible = true
-    } else if prependTrigger.isIndicatorVisible {
-      requestPrependLoadingIndicatorHide(generation: prependTrigger.indicatorVisibilityGeneration)
+    } else {
+      if hasScrollToTopPrependLoadObservedProcessing {
+        isPrependLoadRequestedByScrollToTop = false
+        hasScrollToTopPrependLoadObservedProcessing = false
+      }
+      if prependTrigger.isIndicatorVisible {
+        requestPrependLoadingIndicatorHide(generation: prependTrigger.indicatorVisibilityGeneration)
+      }
     }
   }
 
@@ -1775,16 +1931,48 @@ final class TiledUIView<
     guard prependTrigger.pendingIndicatorHideGeneration == generation else { return }
     guard prependTrigger.indicatorVisibilityGeneration == generation else { return }
 
+    completePrependLoadingIndicatorHide(
+      generation: generation,
+      animatesHiddenEdgeContentInset: shouldAnimatePrependLoadingIndicatorRemoval()
+    )
+  }
+
+  private func finishAppendLoadingIndicatorHide(generation: UInt) {
+    guard !isApplyingItemChanges else { return }
+    guard appendTrigger.pendingIndicatorHideGeneration == generation else { return }
+    guard appendTrigger.indicatorVisibilityGeneration == generation else { return }
+
+    completeAppendLoadingIndicatorHide(
+      generation: generation,
+      animatesHiddenEdgeContentInset: shouldAnimateAppendLoadingIndicatorRemoval()
+    )
+  }
+
+  private func completePrependLoadingIndicatorHide(
+    generation: UInt,
+    animatesHiddenEdgeContentInset: Bool
+  ) {
+    guard prependTrigger.pendingIndicatorHideGeneration == generation else { return }
+    guard prependTrigger.indicatorVisibilityGeneration == generation else { return }
+
     prependTrigger.indicatorHideWorkItem?.cancel()
     prependTrigger.indicatorHideWorkItem = nil
     prependTrigger.pendingIndicatorHideGeneration = nil
     prependTrigger.indicatorVisibilityGeneration &+= 1
     prependTrigger.isIndicatorVisible = false
-    updateLoadingIndicatorVisibility()
+    updateLoadingIndicatorVisibility(
+      animatesHiddenEdgeContentInset: animatesHiddenEdgeContentInset
+    )
+    if !animatesHiddenEdgeContentInset {
+      collectionView.layoutIfNeeded()
+      clampContentOffsetToScrollableBounds(animated: false)
+    }
   }
 
-  private func finishAppendLoadingIndicatorHide(generation: UInt) {
-    guard !isApplyingItemChanges else { return }
+  private func completeAppendLoadingIndicatorHide(
+    generation: UInt,
+    animatesHiddenEdgeContentInset: Bool
+  ) {
     guard appendTrigger.pendingIndicatorHideGeneration == generation else { return }
     guard appendTrigger.indicatorVisibilityGeneration == generation else { return }
 
@@ -1793,10 +1981,59 @@ final class TiledUIView<
     appendTrigger.pendingIndicatorHideGeneration = nil
     appendTrigger.indicatorVisibilityGeneration &+= 1
     appendTrigger.isIndicatorVisible = false
-    updateLoadingIndicatorVisibility()
+    updateLoadingIndicatorVisibility(
+      animatesHiddenEdgeContentInset: animatesHiddenEdgeContentInset
+    )
+    if !animatesHiddenEdgeContentInset {
+      collectionView.layoutIfNeeded()
+      clampContentOffsetToScrollableBounds(animated: false)
+    }
   }
 
-  private func updateLoadingIndicatorVisibility() {
+  private func shouldAnimatePrependLoadingIndicatorRemoval() -> Bool {
+    guard let attributes = layoutAttributesForAccessoryDisplayItem(.prependLoader),
+          attributes.frame.height > 0 else {
+      return false
+    }
+
+    let scrollableBounds = scrollableContentOffsetBounds()
+    let targetOffsetY = min(
+      scrollableBounds.max,
+      scrollableBounds.min + attributes.frame.height
+    )
+    return collectionView.contentOffset.y < targetOffsetY - 0.5
+  }
+
+  private func shouldAnimateAppendLoadingIndicatorRemoval() -> Bool {
+    guard let attributes = layoutAttributesForAccessoryDisplayItem(.appendLoader),
+          attributes.frame.height > 0 else {
+      return false
+    }
+
+    let scrollableBounds = scrollableContentOffsetBounds()
+    let targetOffsetY = max(
+      scrollableBounds.min,
+      scrollableBounds.max - attributes.frame.height
+    )
+    return collectionView.contentOffset.y > targetOffsetY + 0.5
+  }
+
+  private func layoutAttributesForAccessoryDisplayItem(
+    _ displayItem: AccessoryDisplayItem
+  ) -> UICollectionViewLayoutAttributes? {
+    collectionView.layoutIfNeeded()
+
+    guard let indexPath = indexPath(for: displayItem),
+          let attributes = tiledLayout.layoutAttributesForItem(at: indexPath) else {
+      return nil
+    }
+
+    return attributes
+  }
+
+  private func updateLoadingIndicatorVisibility(
+    animatesHiddenEdgeContentInset: Bool = false
+  ) {
     guard collectionView != nil else { return }
 
     setAccessoryDisplayItem(
@@ -1807,7 +2044,6 @@ final class TiledUIView<
         guard let self else { return }
         self.reconfigureAccessoryDisplayItem(.prependLoader)
         self.remeasureAccessoryDisplayItem(.prependLoader, positionPreservation: .itemsAfterMutation)
-        self.updateHiddenEdgeContentInset()
 
         self.setAccessoryDisplayItem(
           .appendLoader,
@@ -1817,7 +2053,7 @@ final class TiledUIView<
             guard let self else { return }
             self.reconfigureAccessoryDisplayItem(.appendLoader)
             self.remeasureAccessoryDisplayItem(.appendLoader, positionPreservation: .itemsBeforeMutation)
-            self.updateHiddenEdgeContentInset()
+            self.updateHiddenEdgeContentInset(animated: animatesHiddenEdgeContentInset)
           }
         )
       }
