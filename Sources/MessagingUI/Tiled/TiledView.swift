@@ -105,6 +105,15 @@ private struct EdgeLoadTrigger<Indicator: View>: ~Copyable {
   }
 }
 
+/// Describes why prepend loading is being requested.
+private enum PrependLoadTriggerSource {
+  /// The user has scrolled near the top edge through the normal scroll path.
+  case edgeThreshold
+
+  /// The user tapped the status bar and UIKit is about to scroll to the top.
+  case scrollToTop
+}
+
 /// MARK: - RevealGestureState
 
 /// Encapsulates state for swipe-to-reveal gesture handling.
@@ -418,10 +427,17 @@ final class TiledUIView<
 
   /// Spring animator for edge content inset changes caused by hiding loaders.
   private var hiddenEdgeContentInsetAnimator: SpringAnimator?
+  private var hiddenEdgeContentInsetAnimationTarget: UIEdgeInsets?
   private var hiddenEdgeContentInsetAnimationGeneration: UInt = 0
 
   /// Whether the current scroll movement was initiated by the user's pan gesture.
   private var isUserScrollSessionActive: Bool = false
+
+  /// Whether a status-bar scroll-to-top request is waiting for prepend loading to settle.
+  private var isPrependLoadRequestedByScrollToTop: Bool = false
+
+  /// Whether the pending status-bar request has observed the external loading state.
+  private var hasScrollToTopPrependLoadObservedProcessing: Bool = false
 
   /// True while the typing indicator is being scrolled out before removal.
   private var isAnimatingTypingIndicatorRemoval: Bool = false
@@ -983,12 +999,18 @@ final class TiledUIView<
     _ inset: UIEdgeInsets,
     animated: Bool
   ) {
-    guard tiledLayout.hiddenEdgeContentInset != inset else { return }
+    if hiddenEdgeContentInsetAnimationTarget == inset {
+      return
+    }
+    guard hiddenEdgeContentInsetAnimator != nil || tiledLayout.hiddenEdgeContentInset != inset else { return }
 
     hiddenEdgeContentInsetAnimationGeneration &+= 1
     let generation = hiddenEdgeContentInsetAnimationGeneration
     hiddenEdgeContentInsetAnimator?.stop(finished: false)
     hiddenEdgeContentInsetAnimator = nil
+    hiddenEdgeContentInsetAnimationTarget = nil
+
+    guard tiledLayout.hiddenEdgeContentInset != inset else { return }
 
     guard animated else {
       tiledLayout.hiddenEdgeContentInset = inset
@@ -1001,6 +1023,7 @@ final class TiledUIView<
       spring: Spring(duration: loadingIndicatorRemovalAnimationDuration, bounce: 0)
     )
     hiddenEdgeContentInsetAnimator = animator
+    hiddenEdgeContentInsetAnimationTarget = inset
 
     // Animate the inset value frame-by-frame so UIScrollView receives each
     // contentInset change and can apply its built-in contentOffset adjustment.
@@ -1022,6 +1045,7 @@ final class TiledUIView<
         guard self.hiddenEdgeContentInsetAnimationGeneration == generation else { return }
 
         self.hiddenEdgeContentInsetAnimator = nil
+        self.hiddenEdgeContentInsetAnimationTarget = nil
         self.tiledLayout.hiddenEdgeContentInset = inset
         self.collectionView.layoutIfNeeded()
         self.clampContentOffsetToScrollableBounds(animated: false)
@@ -1424,7 +1448,7 @@ final class TiledUIView<
     // Prepend trigger
     let offsetY = scrollView.contentOffset.y + scrollView.contentInset.top
     if offsetY <= prependTrigger.threshold {
-      triggerPrependLoadIfNeeded()
+      triggerPrependLoadIfNeeded(source: .edgeThreshold)
     } else {
       prependTrigger.isTriggered = false
     }
@@ -1442,20 +1466,22 @@ final class TiledUIView<
     }
   }
 
-  private func triggerPrependLoadIfNeeded() {
-    guard prependTrigger.loader != nil else { return }
-    guard !prependTrigger.isTriggered && !prependTrigger.isLoading else { return }
-
-    prependTrigger.isTriggered = true
-    triggerPrependLoad()
-  }
-
-  private func triggerPrependLoadForScrollToTop() {
+  private func triggerPrependLoadIfNeeded(source: PrependLoadTriggerSource) {
     guard prependTrigger.loader != nil else { return }
     guard !prependTrigger.isLoading else { return }
 
-    // A status-bar tap is a fresh user intent even when the top-edge trigger is
-    // still latched from a previous top pass.
+    switch source {
+    case .edgeThreshold:
+      guard !prependTrigger.isTriggered else { return }
+    case .scrollToTop:
+      // A status-bar tap is a fresh user intent even when the top-edge trigger
+      // is still latched, but it still needs its own in-flight guard until the
+      // loader reports completion.
+      guard !isPrependLoadRequestedByScrollToTop else { return }
+      isPrependLoadRequestedByScrollToTop = true
+      hasScrollToTopPrependLoadObservedProcessing = false
+    }
+
     prependTrigger.isTriggered = true
     triggerPrependLoad()
   }
@@ -1485,6 +1511,8 @@ final class TiledUIView<
         defer {
           if let self {
             self.prependTrigger.task = nil
+            self.isPrependLoadRequestedByScrollToTop = false
+            self.hasScrollToTopPrependLoadObservedProcessing = false
             DispatchQueue.main.async { [weak self] in
               guard let self else { return }
               guard self.prependTrigger.indicatorVisibilityGeneration == generation else { return }
@@ -1542,7 +1570,7 @@ final class TiledUIView<
 
   func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
     isUserScrollSessionActive = false
-    triggerPrependLoadForScrollToTop()
+    triggerPrependLoadIfNeeded(source: .scrollToTop)
 
     return true
   }
@@ -1812,6 +1840,8 @@ final class TiledUIView<
     prependTrigger.indicatorHideWorkItem = nil
     prependTrigger.pendingIndicatorHideGeneration = nil
     prependTrigger.isIndicatorVisible = false
+    isPrependLoadRequestedByScrollToTop = false
+    hasScrollToTopPrependLoadObservedProcessing = false
   }
 
   private func resetAppendLoadingIndicatorVisibility() {
@@ -1826,12 +1856,21 @@ final class TiledUIView<
     guard prependTrigger.loader?.isProcessing != nil else { return }
 
     if prependTrigger.isLoading {
+      if isPrependLoadRequestedByScrollToTop {
+        hasScrollToTopPrependLoadObservedProcessing = true
+      }
       prependTrigger.indicatorHideWorkItem?.cancel()
       prependTrigger.indicatorHideWorkItem = nil
       prependTrigger.pendingIndicatorHideGeneration = nil
       prependTrigger.isIndicatorVisible = true
-    } else if prependTrigger.isIndicatorVisible {
-      requestPrependLoadingIndicatorHide(generation: prependTrigger.indicatorVisibilityGeneration)
+    } else {
+      if hasScrollToTopPrependLoadObservedProcessing {
+        isPrependLoadRequestedByScrollToTop = false
+        hasScrollToTopPrependLoadObservedProcessing = false
+      }
+      if prependTrigger.isIndicatorVisible {
+        requestPrependLoadingIndicatorHide(generation: prependTrigger.indicatorVisibilityGeneration)
+      }
     }
   }
 
