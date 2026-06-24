@@ -199,7 +199,25 @@ public final class TiledCollectionViewLayout: UICollectionViewLayout {
     forPreferredLayoutAttributes preferredAttributes: UICollectionViewLayoutAttributes,
     withOriginalAttributes originalAttributes: UICollectionViewLayoutAttributes
   ) -> Bool {
-    preferredAttributes.frame.size.height != originalAttributes.frame.size.height
+    guard !shouldSuppressSelfSizingInvalidationDuringBatchUpdates else { return false }
+    return preferredAttributes.frame.size.height != originalAttributes.frame.size.height
+  }
+
+  /// Returns whether preferred-size invalidation should be blocked while UIKit
+  /// is resolving a collection-view batch update.
+  private var shouldSuppressSelfSizingInvalidationDuringBatchUpdates: Bool {
+    guard batchUpdateMetrics != nil else { return false }
+
+    // UIKit can ask visible cells from both pre-update and post-update
+    // snapshots for preferred sizes while a batch update is resolving on
+    // affected OS versions. Starting another self-sizing invalidation in that
+    // window can recurse through visible-cell updates before either snapshot
+    // settles. iOS 26 and newer keep the default self-sizing behavior.
+    if #available(iOS 26.0, *) {
+      return false
+    } else {
+      return true
+    }
   }
 
   public override func invalidationContext(
