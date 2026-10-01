@@ -368,11 +368,19 @@ final class TiledUIView<
   private typealias DisplaySection = TiledCollectionViewLayout.DisplaySection
   private typealias PositionPreservation = TiledCollectionViewLayout.PositionPreservation
 
+  /// Accessory content currently committed to UICollectionView.
+  /// Presence and payload change together, so a queued configuration cannot leave
+  /// a still-counted row without the content required to configure or measure it.
   private struct DisplayedAccessoryState {
-    var hasPrependLoader = false
-    var hasHeaderContent = false
-    var hasTypingIndicator = false
-    var hasAppendLoader = false
+    var prependLoader: PrependLoadingView?
+    var headerContent: HeaderContentView?
+    var typingIndicator: TypingIndicatorView?
+    var appendLoader: AppendLoadingView?
+
+    var hasPrependLoader: Bool { prependLoader != nil }
+    var hasHeaderContent: Bool { headerContent != nil }
+    var hasTypingIndicator: Bool { typingIndicator != nil }
+    var hasAppendLoader: Bool { appendLoader != nil }
 
     func contains(_ displayItem: AccessoryDisplayItem) -> Bool {
       switch displayItem {
@@ -386,19 +394,6 @@ final class TiledUIView<
         hasAppendLoader
       }
     }
-
-    mutating func set(_ displayItem: AccessoryDisplayItem, visible: Bool) {
-      switch displayItem {
-      case .prependLoader:
-        hasPrependLoader = visible
-      case .headerContent:
-        hasHeaderContent = visible
-      case .typingIndicator:
-        hasTypingIndicator = visible
-      case .appendLoader:
-        hasAppendLoader = visible
-      }
-    }
   }
 
   /// prototype cell for size measurement
@@ -408,10 +403,28 @@ final class TiledUIView<
   private let typingIndicatorSizingCell = TiledViewCell<TypingIndicatorView>()
   private let appendLoaderSizingCell = TiledViewCell<AppendLoadingView>()
 
-  /// Item snapshot diff tracking
-  private var isApplyingItemChanges: Bool = false
-  private var queuedItems: [Item]?
-  private var hasAppliedItemSnapshot: Bool = false
+  /// One SwiftUI update, including the accessory configuration used by the data source.
+  /// Pending snapshots do not change the content of an in-flight collection view update.
+  private struct DisplaySnapshot {
+    let items: [Item]
+    let prependLoader: Loader<PrependLoadingView>?
+    let appendLoader: Loader<AppendLoadingView>?
+    let typingIndicator: TypingIndicator<TypingIndicatorView>?
+    let headerContent: HeaderContent<HeaderContentView>?
+  }
+
+  /// Work that owns the collection view until its mutations and completion effects settle.
+  /// Deferred accessory transitions share this queue with complete SwiftUI snapshots.
+  private enum DisplayUpdate {
+    case snapshot(DisplaySnapshot)
+    case accessory((_ completion: @escaping () -> Void) -> Void)
+  }
+
+  private var pendingDisplayUpdates: Deque<DisplayUpdate> = []
+  private var isApplyingDisplayUpdate = false
+  /// Prevents synchronous completions from recursively draining the queue.
+  private var isDrainingDisplayUpdates = false
+  private var hasAppliedItemSnapshot = false
 
   /// Edge load triggers
   private var prependTrigger = EdgeLoadTrigger<PrependLoadingView>()
@@ -488,9 +501,10 @@ final class TiledUIView<
   // MARK: - Loading
 
   /// Sets loaders and updates visibility if loading states changed.
-  func setLoaders(
+  private func setLoaders(
     prepend: Loader<PrependLoadingView>?,
-    append: Loader<AppendLoadingView>?
+    append: Loader<AppendLoadingView>?,
+    completion: @escaping () -> Void
   ) {
     prependTrigger.loader = prepend
     appendTrigger.loader = append
@@ -505,8 +519,11 @@ final class TiledUIView<
       synchronizeAppendLoadingIndicatorVisibility()
     }
 
-    guard hasAppliedItemSnapshot else { return }
-    updateLoadingIndicatorVisibility()
+    guard hasAppliedItemSnapshot else {
+      completion()
+      return
+    }
+    updateLoadingIndicatorVisibility(completion: completion)
   }
 
   // MARK: - Typing Indicator
@@ -516,11 +533,17 @@ final class TiledUIView<
   private var typingIndicatorPhase: TypingIndicatorPhase = .visible
 
   /// Sets the typing indicator and updates visibility.
-  func setTypingIndicator(_ indicator: TypingIndicator<TypingIndicatorView>?) {
+  private func setTypingIndicator(
+    _ indicator: TypingIndicator<TypingIndicatorView>?,
+    completion: @escaping () -> Void
+  ) {
     typingIndicator = indicator
 
-    guard hasAppliedItemSnapshot else { return }
-    updateTypingIndicatorVisibility()
+    guard hasAppliedItemSnapshot else {
+      completion()
+      return
+    }
+    updateTypingIndicatorVisibility(completion: completion)
   }
 
   // MARK: - Header Content
@@ -529,11 +552,17 @@ final class TiledUIView<
   private var headerContent: HeaderContent<HeaderContentView>?
 
   /// Sets the header content and updates visibility.
-  func setHeaderContent(_ header: HeaderContent<HeaderContentView>?) {
+  private func setHeaderContent(
+    _ header: HeaderContent<HeaderContentView>?,
+    completion: @escaping () -> Void
+  ) {
     headerContent = header
 
-    guard hasAppliedItemSnapshot else { return }
-    updateHeaderContentVisibility()
+    guard hasAppliedItemSnapshot else {
+      completion()
+      return
+    }
+    updateHeaderContentVisibility(completion: completion)
   }
 
   /// Additional content inset for keyboard, headers, footers, etc.
@@ -758,24 +787,17 @@ final class TiledUIView<
   private func measureSize(for displayItem: AccessoryDisplayItem, width: CGFloat) -> CGSize? {
     switch displayItem {
     case .prependLoader:
-      guard let loader = prependTrigger.loader else { return .zero }
-      return measureHostedCellSize(loader.indicator, width: width, using: prependLoaderSizingCell)
-
+      guard let content = displayedAccessoryState.prependLoader else { return .zero }
+      return measureHostedCellSize(content, width: width, using: prependLoaderSizingCell)
     case .headerContent:
-      guard let headerContent else { return .zero }
-      return measureHostedCellSize(headerContent.content, width: width, using: headerContentSizingCell)
-
+      guard let content = displayedAccessoryState.headerContent else { return .zero }
+      return measureHostedCellSize(content, width: width, using: headerContentSizingCell)
     case .typingIndicator:
-      guard let typingIndicator else { return .zero }
-      return measureHostedCellSize(
-        typingIndicator.content(typingIndicatorPhase),
-        width: width,
-        using: typingIndicatorSizingCell
-      )
-
+      guard let content = displayedAccessoryState.typingIndicator else { return .zero }
+      return measureHostedCellSize(content, width: width, using: typingIndicatorSizingCell)
     case .appendLoader:
-      guard let loader = appendTrigger.loader else { return .zero }
-      return measureHostedCellSize(loader.indicator, width: width, using: appendLoaderSizingCell)
+      guard let content = displayedAccessoryState.appendLoader else { return .zero }
+      return measureHostedCellSize(content, width: width, using: appendLoaderSizingCell)
     }
   }
 
@@ -827,10 +849,10 @@ final class TiledUIView<
 
   private func currentAccessoryState() -> DisplayedAccessoryState {
     DisplayedAccessoryState(
-      hasPrependLoader: prependTrigger.loader != nil,
-      hasHeaderContent: headerContent != nil,
-      hasTypingIndicator: typingIndicator != nil,
-      hasAppendLoader: appendTrigger.loader != nil
+      prependLoader: prependTrigger.loader?.indicator,
+      headerContent: headerContent?.content,
+      typingIndicator: typingIndicator?.content(typingIndicatorPhase),
+      appendLoader: appendTrigger.loader?.indicator
     )
   }
 
@@ -885,18 +907,62 @@ final class TiledUIView<
     }
   }
 
+  /// Commits content at the same point as a row's insertion, removal, or reconfiguration.
+  private func updateDisplayedAccessoryContent(_ displayItem: AccessoryDisplayItem, visible: Bool) {
+    switch displayItem {
+    case .prependLoader:
+      displayedAccessoryState.prependLoader = if visible {
+        prependTrigger.loader?.indicator
+      } else {
+        nil
+      }
+    case .headerContent:
+      displayedAccessoryState.headerContent = if visible {
+        headerContent?.content
+      } else {
+        nil
+      }
+    case .typingIndicator:
+      displayedAccessoryState.typingIndicator = if visible {
+        typingIndicator?.content(typingIndicatorPhase)
+      } else {
+        nil
+      }
+    case .appendLoader:
+      displayedAccessoryState.appendLoader = if visible {
+        appendTrigger.loader?.indicator
+      } else {
+        nil
+      }
+    }
+  }
+
   private func reconfigureAccessoryDisplayItem(_ displayItem: AccessoryDisplayItem) {
     guard let indexPath = indexPath(for: displayItem) else { return }
+    updateDisplayedAccessoryContent(displayItem, visible: true)
     collectionView.reconfigureItems(at: [indexPath])
   }
 
-  private func primeCollectionViewItemCountForBatchUpdate() {
-    // We intentionally mutate the data source and layout before performBatchUpdates
-    // so UICollectionView can resolve stable before/after layout attributes. Make
-    // sure UIKit has observed the pre-mutation item count before we do that.
-    guard collectionView.numberOfSections > 0 else { return }
-    for section in 0..<collectionView.numberOfSections {
-      _ = collectionView.numberOfItems(inSection: section)
+  /// Applies one UIKit batch under the display update queue's ownership.
+  /// Structural batches retain the old geometry; content-only batches keep self-sizing active.
+  /// Data source changes belong in `updates`, alongside the matching UIKit operations.
+  private func performCollectionViewBatch(
+    isStructural: Bool = true,
+    updates: () -> Void,
+    completion: @escaping () -> Void
+  ) {
+    assert(isApplyingDisplayUpdate)
+    if isStructural {
+      tiledLayout.beginBatchUpdates()
+    }
+    UIView.performWithoutAnimation {
+      collectionView.performBatchUpdates(updates) { [weak self] _ in
+        guard let self else { return }
+        if isStructural {
+          self.tiledLayout.endBatchUpdates()
+        }
+        completion()
+      }
     }
   }
 
@@ -904,65 +970,42 @@ final class TiledUIView<
     _ displayItem: AccessoryDisplayItem,
     visible: Bool,
     positionPreservation: PositionPreservation,
-    beforeUpdate: (() -> Void)? = nil,
-    completion: (() -> Void)? = nil
+    completion: @escaping () -> Void
   ) {
     let isCurrentlyDisplayed = displayedAccessoryState.contains(displayItem)
-
-    let finishUpdate = {
-      completion?()
-    }
 
     switch (isCurrentlyDisplayed, visible) {
     case (true, false):
       guard let indexPath = indexPath(for: displayItem) else {
-        finishUpdate()
+        completion()
         return
       }
-      beforeUpdate?()
-      primeCollectionViewItemCountForBatchUpdate()
-      tiledLayout.beginBatchUpdates()
-      displayedAccessoryState.set(displayItem, visible: false)
-      tiledLayout.enqueuePendingUpdate(.removeItems(at: [indexPath], preserving: positionPreservation))
-
-      UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates({
-          collectionView.deleteItems(at: [indexPath])
-        }, completion: { _ in
-          self.tiledLayout.endBatchUpdates()
-          finishUpdate()
-        })
-      }
+      performCollectionViewBatch(updates: {
+        updateDisplayedAccessoryContent(displayItem, visible: false)
+        tiledLayout.enqueuePendingUpdate(.removeItems(at: [indexPath], preserving: positionPreservation))
+        collectionView.deleteItems(at: [indexPath])
+      }, completion: completion)
 
     case (false, true):
       guard let section = accessorySection(for: displayItem) else {
-        finishUpdate()
+        completion()
         return
       }
       let indexPath = section.indexPath()
-      beforeUpdate?()
-      primeCollectionViewItemCountForBatchUpdate()
-      tiledLayout.beginBatchUpdates()
-      displayedAccessoryState.set(displayItem, visible: true)
-      tiledLayout.enqueuePendingUpdate(
-        .insertItems(count: 1, at: indexPath, preserving: positionPreservation)
-      )
-
-      UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates({
-          collectionView.insertItems(at: [indexPath])
-        }, completion: { _ in
-          self.tiledLayout.endBatchUpdates()
-          finishUpdate()
-        })
-      }
+      performCollectionViewBatch(updates: {
+        updateDisplayedAccessoryContent(displayItem, visible: true)
+        tiledLayout.enqueuePendingUpdate(
+          .insertItems(count: 1, at: indexPath, preserving: positionPreservation)
+        )
+        collectionView.insertItems(at: [indexPath])
+      }, completion: completion)
 
     case (true, true):
       reconfigureAccessoryDisplayItem(displayItem)
-      finishUpdate()
+      completion()
 
     case (false, false):
-      finishUpdate()
+      completion()
     }
   }
 
@@ -1084,65 +1127,89 @@ final class TiledUIView<
 
   // MARK: - Items-based API
 
-  /// Applies a new item snapshot by diffing it against the currently displayed items.
-  func applyItems(_ newItems: [Item]) {
+  /// Queues one coherent render input. Only consecutive waiting snapshots are coalesced,
+  /// so deferred accessory transitions keep their position relative to SwiftUI updates.
+  func applySnapshot(
+    items: [Item],
+    prependLoader: Loader<PrependLoadingView>? = nil,
+    appendLoader: Loader<AppendLoadingView>? = nil,
+    typingIndicator: TypingIndicator<TypingIndicatorView>? = nil,
+    headerContent: HeaderContent<HeaderContentView>? = nil
+  ) {
     assert(
-      Set(newItems.map(\.id)).count == newItems.count,
+      Set(items.map(\.id)).count == items.count,
       "TiledView requires each item to have a unique id."
     )
+    enqueueDisplayUpdate(.snapshot(DisplaySnapshot(
+      items: items,
+      prependLoader: prependLoader,
+      appendLoader: appendLoader,
+      typingIndicator: typingIndicator,
+      headerContent: headerContent
+    )))
+  }
 
-    if isApplyingItemChanges {
-      queuedItems = newItems
-      return
+  private func enqueueDisplayUpdate(_ update: DisplayUpdate) {
+    if case .snapshot = update, case .snapshot? = pendingDisplayUpdates.last {
+      pendingDisplayUpdates.removeLast()
     }
+    pendingDisplayUpdates.append(update)
+    drainDisplayUpdates()
+  }
 
-    if !hasAppliedItemSnapshot {
-      hasAppliedItemSnapshot = true
-      isApplyingItemChanges = true
-      applyChange(.replace(newItems)) { [weak self] in
+  /// Holds ownership through asynchronous UIKit completions and their side effects.
+  /// Synchronous operations are drained iteratively to avoid an unbounded call stack.
+  private func drainDisplayUpdates() {
+    guard !isDrainingDisplayUpdates else { return }
+    isDrainingDisplayUpdates = true
+    defer { isDrainingDisplayUpdates = false }
+
+    while !isApplyingDisplayUpdate, let update = pendingDisplayUpdates.popFirst() {
+      isApplyingDisplayUpdate = true
+      let completion = { [weak self] in
         guard let self else { return }
-        self.isApplyingItemChanges = false
-        self.finishPendingLoadingIndicatorHides()
+        self.isApplyingDisplayUpdate = false
+        self.drainDisplayUpdates()
       }
-      return
+
+      switch update {
+      case .snapshot(let snapshot):
+        applySnapshot(snapshot, completion: completion)
+      case .accessory(let perform):
+        perform(completion)
+      }
     }
-
-    isApplyingItemChanges = true
-    recursive_drainItemChanges(to: newItems)
   }
 
-  private func recursive_drainItemChanges(to newItems: [Item]) {
-    let changes = TiledItemChange.make(from: items, to: newItems)
-    recursive_drainItemChanges(
-      changes,
-      cursor: 0
-    )
+  private func applySnapshot(_ snapshot: DisplaySnapshot, completion: @escaping () -> Void) {
+    setLoaders(prepend: snapshot.prependLoader, append: snapshot.appendLoader) { [self] in
+      setTypingIndicator(snapshot.typingIndicator) { [self] in
+        setHeaderContent(snapshot.headerContent) { [self] in
+          if !hasAppliedItemSnapshot {
+            hasAppliedItemSnapshot = true
+            applyChange(.replace(snapshot.items), completion: completion)
+          } else {
+            let changes = TiledItemChange.make(from: items, to: snapshot.items)
+            applyItemChanges(changes, cursor: 0, completion: completion)
+          }
+        }
+      }
+    }
   }
 
-  private func recursive_drainItemChanges(
+  private func applyItemChanges(
     _ changes: [TiledItemChange<Item>],
-    cursor: Int
+    cursor: Int,
+    completion: @escaping () -> Void
   ) {
     guard cursor < changes.count else {
-      if let queuedItems {
-        self.queuedItems = nil
-        recursive_drainItemChanges(to: queuedItems)
-      } else {
-        isApplyingItemChanges = false
-        finishPendingLoadingIndicatorHides()
-      }
+      completion()
       return
     }
 
     applyChange(changes[cursor]) { [weak self] in
       guard let self else { return }
-
-      if let queuedItems {
-        self.queuedItems = nil
-        recursive_drainItemChanges(to: queuedItems)
-      } else {
-        recursive_drainItemChanges(changes, cursor: cursor + 1)
-      }
+      self.applyItemChanges(changes, cursor: cursor + 1, completion: completion)
     }
   }
 
@@ -1189,145 +1256,93 @@ final class TiledUIView<
         completion()
         return
       }
-
       let insertionIndexPath = DisplaySection.messages.indexPath(item: 0)
-      primeCollectionViewItemCountForBatchUpdate()
-      tiledLayout.beginBatchUpdates()
-      items.insert(contentsOf: newItems, at: 0)
-      tiledLayout.enqueuePendingUpdate(
-        .insertItems(count: newItems.count, at: insertionIndexPath, preserving: .itemsAfterMutation)
-      )
-
       let indexPaths = (0..<newItems.count).map {
         DisplaySection.messages.indexPath(item: $0)
       }
-
-      UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates({
-          collectionView.insertItems(at: indexPaths)
-        }, completion: { _ in
-          self.tiledLayout.endBatchUpdates()
-          completion()
-        })
-      }
+      performCollectionViewBatch(updates: {
+        items.insert(contentsOf: newItems, at: 0)
+        tiledLayout.enqueuePendingUpdate(
+          .insertItems(count: newItems.count, at: insertionIndexPath, preserving: .itemsAfterMutation)
+        )
+        collectionView.insertItems(at: indexPaths)
+      }, completion: completion)
 
     case .append(let newItems):
-      let startingIndex = items.count
       guard !newItems.isEmpty else {
         completion()
         return
       }
-
+      let startingIndex = items.count
       let insertionIndexPath = DisplaySection.messages.indexPath(item: startingIndex)
-      primeCollectionViewItemCountForBatchUpdate()
-      tiledLayout.beginBatchUpdates()
-      items.append(contentsOf: newItems)
-      tiledLayout.enqueuePendingUpdate(
-        .insertItems(count: newItems.count, at: insertionIndexPath, preserving: .itemsBeforeMutation)
-      )
-
       let indexPaths = (startingIndex..<startingIndex + newItems.count).map {
         DisplaySection.messages.indexPath(item: $0)
       }
-
-      UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates({
-          collectionView.insertItems(at: indexPaths)
-        }, completion: { [weak self] _ in
-          guard let self else { return }
-          self.tiledLayout.endBatchUpdates()
-
-          if autoScrollsToBottomOnAppend {
-            scrollTo(edge: .bottom, animated: true)
-          }
-
-          completion()
-        })
-      }
+      performCollectionViewBatch(updates: {
+        items.append(contentsOf: newItems)
+        tiledLayout.enqueuePendingUpdate(
+          .insertItems(count: newItems.count, at: insertionIndexPath, preserving: .itemsBeforeMutation)
+        )
+        collectionView.insertItems(at: indexPaths)
+      }, completion: { [self] in
+        if autoScrollsToBottomOnAppend {
+          scrollTo(edge: .bottom, animated: true)
+        }
+        completion()
+      })
 
     case .insert(let index, let newItems):
       guard !newItems.isEmpty else {
         completion()
         return
       }
-
       let insertionIndexPath = DisplaySection.messages.indexPath(item: index)
-      primeCollectionViewItemCountForBatchUpdate()
-      tiledLayout.beginBatchUpdates()
-      for (offset, item) in newItems.enumerated() {
-        items.insert(item, at: index + offset)
-      }
-      tiledLayout.enqueuePendingUpdate(
-        .insertItems(count: newItems.count, at: insertionIndexPath, preserving: .itemsBeforeMutation)
-      )
-
       let indexPaths = (index..<index + newItems.count).map {
         DisplaySection.messages.indexPath(item: $0)
       }
-
-      UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates({
-          collectionView.insertItems(at: indexPaths)
-        }, completion: { _ in
-          self.tiledLayout.endBatchUpdates()
-          completion()
-        })
-      }
+      performCollectionViewBatch(updates: {
+        items.insert(contentsOf: newItems, at: index)
+        tiledLayout.enqueuePendingUpdate(
+          .insertItems(count: newItems.count, at: insertionIndexPath, preserving: .itemsBeforeMutation)
+        )
+        collectionView.insertItems(at: indexPaths)
+      }, completion: completion)
 
     case .update(let newItems):
       let indexPaths = newItems.compactMap { item -> IndexPath? in
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return nil }
         return DisplaySection.messages.indexPath(item: index)
       }
-
       guard !indexPaths.isEmpty else {
         completion()
         return
       }
-      primeCollectionViewItemCountForBatchUpdate()
-      for item in newItems {
-        if let index = items.firstIndex(where: { $0.id == item.id }) {
-          items[index] = item
+      performCollectionViewBatch(isStructural: false, updates: {
+        for item in newItems {
+          if let index = items.firstIndex(where: { $0.id == item.id }) {
+            items[index] = item
+          }
         }
-      }
-
-      UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates({
-          collectionView.reconfigureItems(at: indexPaths)
-        }, completion: { _ in
-          completion()
-        })
-      }
+        collectionView.reconfigureItems(at: indexPaths)
+      }, completion: completion)
 
     case .remove(let ids):
       let idsSet = Set(ids)
-      // Find indices before removing items
-      let indicesToRemove = items.enumerated()
-        .filter { idsSet.contains($0.element.id) }
-        .map { $0.offset }
-      guard !indicesToRemove.isEmpty else {
+      let indexPaths = items.enumerated().compactMap { index, item -> IndexPath? in
+        guard idsSet.contains(item.id) else { return nil }
+        return DisplaySection.messages.indexPath(item: index)
+      }
+      guard !indexPaths.isEmpty else {
         completion()
         return
       }
-
-      let indexPaths = indicesToRemove.map {
-        DisplaySection.messages.indexPath(item: $0)
-      }
-      primeCollectionViewItemCountForBatchUpdate()
-      tiledLayout.beginBatchUpdates()
-      items.removeAll { idsSet.contains($0.id) }
-      tiledLayout.enqueuePendingUpdate(
-        .removeItems(at: indexPaths, preserving: .itemsBeforeMutation)
-      )
-
-      UIView.performWithoutAnimation {
-        collectionView.performBatchUpdates({
-          collectionView.deleteItems(at: indexPaths)
-        }, completion: { _ in
-          self.tiledLayout.endBatchUpdates()
-          completion()
-        })
-      }
+      performCollectionViewBatch(updates: {
+        items.removeAll { idsSet.contains($0.id) }
+        tiledLayout.enqueuePendingUpdate(
+          .removeItems(at: indexPaths, preserving: .itemsBeforeMutation)
+        )
+        collectionView.deleteItems(at: indexPaths)
+      }, completion: completion)
     }
   }
 
@@ -1364,8 +1379,8 @@ final class TiledUIView<
 
       switch displayItem {
       case .prependLoader:
-        if let loader = prependTrigger.loader {
-          let cell = dequeueCell(collectionView, at: indexPath, kind: .prependLoader, content: loader.indicator)
+        if let content = displayedAccessoryState.prependLoader {
+          let cell = dequeueCell(collectionView, at: indexPath, kind: .prependLoader, content: content)
           cell.contentView.alpha = prependTrigger.shouldShowIndicator ? 1 : 0
           return cell
         } else {
@@ -1373,19 +1388,19 @@ final class TiledUIView<
         }
 
       case .headerContent:
-        if let headerContent {
-          return dequeueCell(collectionView, at: indexPath, kind: .headerContent, content: headerContent.content)
+        if let content = displayedAccessoryState.headerContent {
+          return dequeueCell(collectionView, at: indexPath, kind: .headerContent, content: content)
         } else {
           return dequeueEmptyCell(collectionView, at: indexPath)
         }
 
       case .typingIndicator:
-        if let typingIndicator {
+        if let content = displayedAccessoryState.typingIndicator {
           let cell = dequeueCell(
             collectionView,
             at: indexPath,
             kind: .typingIndicator,
-            content: typingIndicator.content(typingIndicatorPhase)
+            content: content
           )
           cell.contentView.alpha = isTypingIndicatorIncludedInContentBounds || isAnimatingTypingIndicatorRemoval ? 1 : 0
           return cell
@@ -1394,8 +1409,8 @@ final class TiledUIView<
         }
 
       case .appendLoader:
-        if let loader = appendTrigger.loader {
-          let cell = dequeueCell(collectionView, at: indexPath, kind: .appendLoader, content: loader.indicator)
+        if let content = displayedAccessoryState.appendLoader {
+          let cell = dequeueCell(collectionView, at: indexPath, kind: .appendLoader, content: content)
           cell.contentView.alpha = appendTrigger.shouldShowIndicator ? 1 : 0
           return cell
         } else {
@@ -1500,13 +1515,19 @@ final class TiledUIView<
       prependTrigger.task = Task { @MainActor [weak self] in
         DispatchQueue.main.async { [weak self] in
           guard let self else { return }
-          guard self.prependTrigger.indicatorVisibilityGeneration == generation else { return }
-          guard self.prependTrigger.isLoading else { return }
-          self.prependTrigger.indicatorHideWorkItem?.cancel()
-          self.prependTrigger.indicatorHideWorkItem = nil
-          self.prependTrigger.pendingIndicatorHideGeneration = nil
-          self.prependTrigger.isIndicatorVisible = true
-          self.updateLoadingIndicatorVisibility()
+          self.enqueueDisplayUpdate(.accessory { [weak self] completion in
+            guard let self,
+                  self.prependTrigger.indicatorVisibilityGeneration == generation,
+                  self.prependTrigger.isLoading else {
+              completion()
+              return
+            }
+            self.prependTrigger.indicatorHideWorkItem?.cancel()
+            self.prependTrigger.indicatorHideWorkItem = nil
+            self.prependTrigger.pendingIndicatorHideGeneration = nil
+            self.prependTrigger.isIndicatorVisible = true
+            self.updateLoadingIndicatorVisibility(completion: completion)
+          })
         }
         defer {
           if let self {
@@ -1542,13 +1563,19 @@ final class TiledUIView<
       appendTrigger.task = Task { @MainActor [weak self] in
         DispatchQueue.main.async { [weak self] in
           guard let self else { return }
-          guard self.appendTrigger.indicatorVisibilityGeneration == generation else { return }
-          guard self.appendTrigger.isLoading else { return }
-          self.appendTrigger.indicatorHideWorkItem?.cancel()
-          self.appendTrigger.indicatorHideWorkItem = nil
-          self.appendTrigger.pendingIndicatorHideGeneration = nil
-          self.appendTrigger.isIndicatorVisible = true
-          self.updateLoadingIndicatorVisibility()
+          self.enqueueDisplayUpdate(.accessory { [weak self] completion in
+            guard let self,
+                  self.appendTrigger.indicatorVisibilityGeneration == generation,
+                  self.appendTrigger.isLoading else {
+              completion()
+              return
+            }
+            self.appendTrigger.indicatorHideWorkItem?.cancel()
+            self.appendTrigger.indicatorHideWorkItem = nil
+            self.appendTrigger.pendingIndicatorHideGeneration = nil
+            self.appendTrigger.isIndicatorVisible = true
+            self.updateLoadingIndicatorVisibility(completion: completion)
+          })
         }
         defer {
           if let self {
@@ -1917,77 +1944,52 @@ final class TiledUIView<
     DispatchQueue.main.asyncAfter(deadline: .now() + loadingIndicatorHideDelay, execute: workItem)
   }
 
-  private func finishPendingLoadingIndicatorHides() {
-    if let generation = prependTrigger.pendingIndicatorHideGeneration {
-      finishPrependLoadingIndicatorHide(generation: generation)
-    }
-    if let generation = appendTrigger.pendingIndicatorHideGeneration {
-      finishAppendLoadingIndicatorHide(generation: generation)
-    }
-  }
-
   private func finishPrependLoadingIndicatorHide(generation: UInt) {
-    guard !isApplyingItemChanges else { return }
-    guard prependTrigger.pendingIndicatorHideGeneration == generation else { return }
-    guard prependTrigger.indicatorVisibilityGeneration == generation else { return }
-
-    completePrependLoadingIndicatorHide(
-      generation: generation,
-      animatesHiddenEdgeContentInset: shouldAnimatePrependLoadingIndicatorRemoval()
-    )
+    enqueueDisplayUpdate(.accessory { [weak self] completion in
+      guard let self,
+            self.prependTrigger.pendingIndicatorHideGeneration == generation,
+            self.prependTrigger.indicatorVisibilityGeneration == generation else {
+        completion()
+        return
+      }
+      let animated = self.shouldAnimatePrependLoadingIndicatorRemoval()
+      self.prependTrigger.indicatorHideWorkItem?.cancel()
+      self.prependTrigger.indicatorHideWorkItem = nil
+      self.prependTrigger.pendingIndicatorHideGeneration = nil
+      self.prependTrigger.indicatorVisibilityGeneration &+= 1
+      self.prependTrigger.isIndicatorVisible = false
+      self.updateLoadingIndicatorVisibility(animatesHiddenEdgeContentInset: animated) { [self] in
+        if !animated {
+          collectionView.layoutIfNeeded()
+          clampContentOffsetToScrollableBounds(animated: false)
+        }
+        completion()
+      }
+    })
   }
 
   private func finishAppendLoadingIndicatorHide(generation: UInt) {
-    guard !isApplyingItemChanges else { return }
-    guard appendTrigger.pendingIndicatorHideGeneration == generation else { return }
-    guard appendTrigger.indicatorVisibilityGeneration == generation else { return }
-
-    completeAppendLoadingIndicatorHide(
-      generation: generation,
-      animatesHiddenEdgeContentInset: shouldAnimateAppendLoadingIndicatorRemoval()
-    )
-  }
-
-  private func completePrependLoadingIndicatorHide(
-    generation: UInt,
-    animatesHiddenEdgeContentInset: Bool
-  ) {
-    guard prependTrigger.pendingIndicatorHideGeneration == generation else { return }
-    guard prependTrigger.indicatorVisibilityGeneration == generation else { return }
-
-    prependTrigger.indicatorHideWorkItem?.cancel()
-    prependTrigger.indicatorHideWorkItem = nil
-    prependTrigger.pendingIndicatorHideGeneration = nil
-    prependTrigger.indicatorVisibilityGeneration &+= 1
-    prependTrigger.isIndicatorVisible = false
-    updateLoadingIndicatorVisibility(
-      animatesHiddenEdgeContentInset: animatesHiddenEdgeContentInset
-    )
-    if !animatesHiddenEdgeContentInset {
-      collectionView.layoutIfNeeded()
-      clampContentOffsetToScrollableBounds(animated: false)
-    }
-  }
-
-  private func completeAppendLoadingIndicatorHide(
-    generation: UInt,
-    animatesHiddenEdgeContentInset: Bool
-  ) {
-    guard appendTrigger.pendingIndicatorHideGeneration == generation else { return }
-    guard appendTrigger.indicatorVisibilityGeneration == generation else { return }
-
-    appendTrigger.indicatorHideWorkItem?.cancel()
-    appendTrigger.indicatorHideWorkItem = nil
-    appendTrigger.pendingIndicatorHideGeneration = nil
-    appendTrigger.indicatorVisibilityGeneration &+= 1
-    appendTrigger.isIndicatorVisible = false
-    updateLoadingIndicatorVisibility(
-      animatesHiddenEdgeContentInset: animatesHiddenEdgeContentInset
-    )
-    if !animatesHiddenEdgeContentInset {
-      collectionView.layoutIfNeeded()
-      clampContentOffsetToScrollableBounds(animated: false)
-    }
+    enqueueDisplayUpdate(.accessory { [weak self] completion in
+      guard let self,
+            self.appendTrigger.pendingIndicatorHideGeneration == generation,
+            self.appendTrigger.indicatorVisibilityGeneration == generation else {
+        completion()
+        return
+      }
+      let animated = self.shouldAnimateAppendLoadingIndicatorRemoval()
+      self.appendTrigger.indicatorHideWorkItem?.cancel()
+      self.appendTrigger.indicatorHideWorkItem = nil
+      self.appendTrigger.pendingIndicatorHideGeneration = nil
+      self.appendTrigger.indicatorVisibilityGeneration &+= 1
+      self.appendTrigger.isIndicatorVisible = false
+      self.updateLoadingIndicatorVisibility(animatesHiddenEdgeContentInset: animated) { [self] in
+        if !animated {
+          collectionView.layoutIfNeeded()
+          clampContentOffsetToScrollableBounds(animated: false)
+        }
+        completion()
+      }
+    })
   }
 
   private func shouldAnimatePrependLoadingIndicatorRemoval() -> Bool {
@@ -2032,10 +2034,9 @@ final class TiledUIView<
   }
 
   private func updateLoadingIndicatorVisibility(
-    animatesHiddenEdgeContentInset: Bool = false
+    animatesHiddenEdgeContentInset: Bool = false,
+    completion: @escaping () -> Void
   ) {
-    guard collectionView != nil else { return }
-
     setAccessoryDisplayItem(
       .prependLoader,
       visible: prependTrigger.loader != nil,
@@ -2054,6 +2055,7 @@ final class TiledUIView<
             self.reconfigureAccessoryDisplayItem(.appendLoader)
             self.remeasureAccessoryDisplayItem(.appendLoader, positionPreservation: .itemsBeforeMutation)
             self.updateHiddenEdgeContentInset(animated: animatesHiddenEdgeContentInset)
+            completion()
           }
         )
       }
@@ -2061,16 +2063,21 @@ final class TiledUIView<
   }
 
   private func scheduleTypingIndicatorVisiblePhase() {
+    let generation = typingIndicatorRemovalGeneration
     DispatchQueue.main.async { [weak self] in
-      guard let self else { return }
-      guard self.displayedAccessoryState.hasTypingIndicator else { return }
-      guard self.typingIndicator?.isVisible == true else { return }
-      guard !self.isAnimatingTypingIndicatorRemoval else { return }
+      self?.enqueueDisplayUpdate(.accessory { [weak self] completion in
+        defer { completion() }
+        guard let self,
+              self.typingIndicatorRemovalGeneration == generation,
+              self.displayedAccessoryState.hasTypingIndicator,
+              self.typingIndicator?.isVisible == true,
+              !self.isAnimatingTypingIndicatorRemoval else { return }
 
-      self.typingIndicatorPhase = .visible
-      self.reconfigureAccessoryDisplayItem(.typingIndicator)
-      self.remeasureAccessoryDisplayItem(.typingIndicator, positionPreservation: .itemsBeforeMutation)
-      self.updateHiddenEdgeContentInset()
+        self.typingIndicatorPhase = .visible
+        self.reconfigureAccessoryDisplayItem(.typingIndicator)
+        self.remeasureAccessoryDisplayItem(.typingIndicator, positionPreservation: .itemsBeforeMutation)
+        self.updateHiddenEdgeContentInset()
+      })
     }
   }
 
@@ -2078,6 +2085,14 @@ final class TiledUIView<
     generation: UInt,
     clampAnimated: Bool
   ) {
+    enqueueDisplayUpdate(.accessory { [weak self] completion in
+      self?.completeTypingIndicatorRemoval(generation: generation, clampAnimated: clampAnimated)
+      completion()
+    })
+  }
+
+  /// Completes a generation-checked transition while the display update queue is owned.
+  private func completeTypingIndicatorRemoval(generation: UInt, clampAnimated: Bool) {
     guard isAnimatingTypingIndicatorRemoval else { return }
     guard typingIndicatorRemovalGeneration == generation else { return }
 
@@ -2109,7 +2124,7 @@ final class TiledUIView<
     DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
   }
 
-  private func updateTypingIndicatorVisibility() {
+  private func updateTypingIndicatorVisibility(completion: @escaping () -> Void) {
     let isVisible = typingIndicator?.isVisible ?? false
     let wasNearBottom = collectionView.tiledScrollGeometry.pointsFromBottom < 100
 
@@ -2126,12 +2141,14 @@ final class TiledUIView<
         positionPreservation: .itemsBeforeMutation,
         completion: { [weak self] in
           self?.updateHiddenEdgeContentInset()
+          completion()
         }
       )
       return
     }
 
     if isAnimatingTypingIndicatorRemoval {
+      defer { completion() }
       guard isVisible else { return }
       typingIndicatorRemovalGeneration &+= 1
       typingIndicatorRemovalWorkItem?.cancel()
@@ -2153,6 +2170,7 @@ final class TiledUIView<
     }
 
     if isTypingIndicatorIncludedInContentBounds && !isVisible {
+      defer { completion() }
       collectionView.layoutIfNeeded()
       typingIndicatorRemovalGeneration &+= 1
       let removalGeneration = typingIndicatorRemovalGeneration
@@ -2173,7 +2191,7 @@ final class TiledUIView<
 
       guard let indexPath = indexPath(for: .typingIndicator),
             let attributes = tiledLayout.layoutAttributesForItem(at: indexPath) else {
-        finishTypingIndicatorRemoval(
+        completeTypingIndicatorRemoval(
           generation: removalGeneration,
           clampAnimated: false
         )
@@ -2206,6 +2224,7 @@ final class TiledUIView<
       visible: true,
       positionPreservation: .itemsBeforeMutation,
       completion: { [weak self] in
+        defer { completion() }
         guard let self else { return }
 
         if isVisible {
@@ -2234,13 +2253,12 @@ final class TiledUIView<
     )
   }
 
-  private func updateHeaderContentVisibility() {
-    guard collectionView != nil else { return }
-
+  private func updateHeaderContentVisibility(completion: @escaping () -> Void) {
     setAccessoryDisplayItem(
       .headerContent,
       visible: headerContent != nil,
-      positionPreservation: .itemsAfterMutation
+      positionPreservation: .itemsAfterMutation,
+      completion: completion
     )
   }
 }
@@ -2340,12 +2358,13 @@ struct TiledViewRepresentable<
     uiView.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
     uiView.revealConfiguration = revealConfiguration
 
-    // Update loaders, typing indicator, and header content
-    uiView.setLoaders(prepend: prependLoader, append: appendLoader)
-    uiView.setTypingIndicator(typingIndicator)
-    uiView.setHeaderContent(headerContent)
-
-    uiView.applyItems(items)
+    uiView.applySnapshot(
+      items: items,
+      prependLoader: prependLoader,
+      appendLoader: appendLoader,
+      typingIndicator: typingIndicator,
+      headerContent: headerContent
+    )
     uiView.applyScrollPosition(scrollPosition)
   }
 }
