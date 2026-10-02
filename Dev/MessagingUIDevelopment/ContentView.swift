@@ -16,6 +16,7 @@ enum DemoDestination: Hashable {
   case lazyVStack
   case list
   case messenger
+  case replyGeometry
   case messengerSwiftData
   case messengerBidirectional
   case applyDiffDemo
@@ -46,6 +47,10 @@ struct ContentView: View {
         }
 
         Section("Demos") {
+          NavigationLink(value: DemoDestination.replyGeometry) {
+            Label("Reply Geometry Lab", systemImage: "arrowshape.turn.up.left")
+          }
+
           NavigationLink(value: DemoDestination.tiledView) {
             Label {
               VStack(alignment: .leading) {
@@ -212,6 +217,8 @@ struct ContentView: View {
           ListDemo()
         case .messenger:
           MessengerDemo()
+        case .replyGeometry:
+          ReplyGeometryDemo()
         case .messengerSwiftData:
           MessengerSwiftDataDemo()
         case .messengerBidirectional:
