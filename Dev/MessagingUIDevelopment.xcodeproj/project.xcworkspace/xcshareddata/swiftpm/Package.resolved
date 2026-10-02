@@ -1,6 +1,14 @@
 {
-  "originHash" : "cf30d3866b089946692d0cb53b6824a425ee50b9313be85ccf55af590a5ebe9f",
   "pins" : [
+    {
+      "identity" : "obfuscate",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Aeastr/Obfuscate.git",
+      "state" : {
+        "revision" : "459e6ea0692ed5a5cbc79d414d56e1ff3b07e44d",
+        "version" : "1.4.0"
+      }
+    },
     {
       "identity" : "swift-collections",
       "kind" : "remoteSourceControl",
@@ -20,12 +28,48 @@
       }
     },
     {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-syntax",
+      "state" : {
+        "revision" : "0687f71944021d616d34d922343dcef086855920",
+        "version" : "600.0.1"
+      }
+    },
+    {
       "identity" : "swift-with-prerender",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/FluidGroup/swift-with-prerender",
       "state" : {
         "revision" : "3ebae495b1c441edcf0850ec057f97be221dca0f",
         "version" : "1.1.0"
+      }
+    },
+    {
+      "identity" : "swiftui-scrollview-interoperable-drag-gesture",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidGroup/swiftui-scrollview-interoperable-drag-gesture",
+      "state" : {
+        "revision" : "ee6daeca239c6cb180724f1c4bfad383f58eac22",
+        "version" : "0.5.0"
+      }
+    },
+    {
+      "identity" : "swiftui-support",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidGroup/swiftui-support",
+      "state" : {
+        "revision" : "f8058066c1d310458390d6c73462bf6722b71fc9",
+        "version" : "0.14.0"
+      }
+    },
+    {
+      "identity" : "uiportalbridge",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/Aeastr/UIPortalBridge",
+      "state" : {
+        "revision" : "fd542e0d66b305cd802fdbacd7f1a153c210c50a",
+        "version" : "1.0.0"
       }
     }
   ],

@@ -17,6 +17,7 @@ enum DemoDestination: Hashable {
   case list
   case messenger
   case replyGeometry
+  case contextOverlay
   case messengerSwiftData
   case messengerBidirectional
   case applyDiffDemo
@@ -49,6 +50,10 @@ struct ContentView: View {
         Section("Demos") {
           NavigationLink(value: DemoDestination.replyGeometry) {
             Label("Reply Geometry Lab", systemImage: "arrowshape.turn.up.left")
+          }
+
+          NavigationLink(value: DemoDestination.contextOverlay) {
+            Label("Context Overlay", systemImage: "rectangle.on.rectangle")
           }
 
           NavigationLink(value: DemoDestination.tiledView) {
@@ -218,7 +223,10 @@ struct ContentView: View {
         case .messenger:
           MessengerDemo()
         case .replyGeometry:
-          ReplyGeometryDemo()
+          if #available(iOS 18.0, *) { ReplyGeometryDemo() }
+          else { Text("Reply drag requires iOS 18 or later.") }
+        case .contextOverlay:
+          ContextOverlayDemo()
         case .messengerSwiftData:
           MessengerSwiftDataDemo()
         case .messengerBidirectional:

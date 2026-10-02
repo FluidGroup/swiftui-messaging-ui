@@ -1,26 +1,30 @@
+import ContextOverlay
+import MessagingCell
 import MessagingUI
-import Observation
 import SwiftUI
-import UIKit
 
-/// Tests message-to-overlay geometry transitions from TiledView's cell hosts.
+/// Adapts the generic contextual overlay to right-swipe reply in a TiledView.
 ///
-/// Each row uses the library's actual `UIHostingConfiguration`. The outer overlay
-/// shares its namespace and selection transaction with these independent hosts.
+/// Message data, sent/received alignment, and destination controls belong here.
+/// ContextOverlay owns the live rendering handoff and geometry interpolation.
+@available(iOS 18.0, *)
 struct ReplyGeometryDemo: View {
-  @Namespace private var namespace
-  @State private var session = ReplyGeometrySession()
+  @State private var state = ContextOverlayState<Message>()
   @State private var scrollPosition = TiledScrollPosition()
+  @State private var isSlow = false
+  private let messages: [Message] = {
+    var messages = generateConversation(count: 18, startId: 0)
+    messages[4].text = "Want to grab dinner? That new Italian place has a quiet terrace, so we could catch up there after work."
+    return messages
+  }()
 
   var body: some View {
-    @Bindable var session = session
-
     VStack(spacing: 0) {
       VStack(alignment: .leading, spacing: 8) {
-        Toggle("Slow animation", isOn: $session.isSlow)
-          .disabled(session.selected != nil)
+        Toggle("Slow animation", isOn: $isSlow)
+          .disabled(state.presentation != nil)
 
-        Text("TiledView cell hosts → overlay")
+        Text("Right: reply · Left: timestamps · Vertical: scroll")
           .font(.caption)
           .foregroundStyle(.secondary)
       }
@@ -29,172 +33,146 @@ struct ReplyGeometryDemo: View {
       Divider()
 
       messageList
-        .allowsHitTesting(session.selected == nil)
+        .allowsHitTesting(state.presentation == nil)
         .overlay {
-          if let message = session.selected {
-            replyOverlay(message: message)
-              // Retain outgoing rendering while geometry returns to the source.
-              .transition(.opacity)
+          ContextOverlay(state: state) { presentation in
+            replyDestination(presentation)
           }
         }
 
       Divider()
 
-      Text("Tap a bubble and compare its spinner phase and render ID during travel. This overlay rebuilds the bubble; it does not use a portal yet.")
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .padding(12)
+      VStack(alignment: .leading, spacing: 4) {
+        Text(state.status)
+        Text("Swipe a cell right or tap. The portal keeps the spinner ID and rotation. Drag the overlay vertically.")
+          .foregroundStyle(.secondary)
+      }
+      .font(.caption)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(12)
     }
     .navigationTitle("Reply Geometry Lab")
     .navigationBarTitleDisplayMode(.inline)
-  }
-
-  @ViewBuilder
-  private var messageList: some View {
-    // TiledView retains its initial builder. Capture reference state and the
-    // namespace once; selection is observed inside each row's SwiftUI body.
-    let capturedSession = session
-    let capturedNamespace = namespace
-
-    TiledView(items: session.messages, scrollPosition: $scrollPosition) { message in
-      ReplyGeometryCell(
-        item: message,
-        session: capturedSession,
-        namespace: capturedNamespace
-      )
+    .onChange(of: isSlow) { _, slow in
+      state.animation = .spring(response: slow ? 3 : 0.45, dampingFraction: 0.82)
+      state.presentationSpringDuration = slow ? 3 : 0.45
     }
-    .revealConfiguration(.disabled)
   }
 
-  private func replyOverlay(message: Message) -> some View {
+  private var messageList: some View {
+    // TiledView retains its initial builder, so rows share stable overlay state.
+    let capturedState = state
+    return TiledView(items: messages, scrollPosition: $scrollPosition) { message in
+      ReplyGeometryCell(item: message, state: capturedState)
+    }
+    .revealConfiguration(.default)
+  }
+
+  /// The reply-specific destination composes the generic rendering placeholder.
+  private func replyDestination(_ presentation: ContextOverlayPresentation<Message>) -> some View {
     GeometryReader { geometry in
       ZStack {
         Color(.systemBackground)
-          .opacity(0.9)
-          .transition(.opacity)
+          .opacity(state.isPresented ? 0.9 : 0)
+          .allowsHitTesting(false)
 
         ScrollView(.vertical) {
           VStack(spacing: 16) {
             Spacer(minLength: 0)
-
             Text("Reply target")
               .font(.headline)
 
             HStack(spacing: 0) {
-              if message.isSentByMe { Spacer(minLength: 60) }
-
-              ReplyGeometryBubble(message: message)
-                .matchedGeometryEffect(id: message.id, in: namespace)
-                .transition(.opacity)
-                .accessibilityIdentifier("reply-geometry-overlay-bubble")
-
-              if !message.isSentByMe { Spacer(minLength: 60) }
+              if presentation.context.isSentByMe { Spacer(minLength: 60) }
+              presentation.sourcePlaceholder
+              if !presentation.context.isSentByMe { Spacer(minLength: 60) }
             }
             .padding(.horizontal, 12)
 
-            Button("Close") {
-              withAnimation(session.animation) {
-                session.selected = nil
-              }
-            }
-            .buttonStyle(.borderedProminent)
-            .accessibilityIdentifier("reply-geometry-close")
+            Button("Close") { state.dismiss() }
+              .buttonStyle(.borderedProminent)
+              .accessibilityIdentifier("reply-geometry-close")
           }
           .padding(.bottom, 32)
-          // Preserve the resting destination while letting taller content grow.
           .frame(minHeight: geometry.size.height, alignment: .bottom)
         }
-        // A short bubble still needs to move with the user's vertical drag.
         .scrollBounceBehavior(.always, axes: .vertical)
         .scrollIndicators(.hidden)
+        .opacity(state.isPresented ? 1 : 0)
         .accessibilityIdentifier("reply-geometry-overlay-scroll")
       }
     }
-    .zIndex(1)
-  }
-}
-
-/// Owns the selection shared by the outer overlay and independently hosted rows.
-///
-/// Reference identity lets rows observe selection changes even though TiledView
-/// keeps the builder supplied when its UIKit view is first created.
-@MainActor
-@Observable
-private final class ReplyGeometrySession {
-  var selected: Message?
-  var isSlow = false
-  let messages: [Message]
-
-  init() {
-    var messages = generateConversation(count: 18, startId: 0)
-    messages[4].text = "Want to grab dinner? That new Italian place has a quiet terrace, so we could catch up there after work."
-    self.messages = messages
-  }
-
-  var animation: Animation {
-    .spring(response: isSlow ? 3 : 0.45, dampingFraction: 0.82)
   }
 }
 
 /// Adapts the shared experiment row to TiledView's production cell interface.
+@available(iOS 18.0, *)
 private struct ReplyGeometryCell: TiledCellContent {
   typealias StateValue = Void
 
   let item: Message
-  let session: ReplyGeometrySession
-  let namespace: Namespace.ID
+  let state: ContextOverlayState<Message>
 
   func body(context: CellContext<Void>) -> some View {
     ReplyGeometryRow(
       message: item,
-      session: session,
-      namespace: namespace
+      state: state,
+      reveal: context.cellReveal
     )
   }
 }
 
-/// Keeps the source row's layout intact while its bubble lives in the overlay.
+/// Keeps one bubble subtree alive throughout portal presentation and return.
+@available(iOS 18.0, *)
 private struct ReplyGeometryRow: View {
   let message: Message
-  let session: ReplyGeometrySession
-  let namespace: Namespace.ID
+  let state: ContextOverlayState<Message>
+  let reveal: CellReveal?
+  @State private var source = CellSource()
   @State private var isAttachedToWindow = false
 
   var body: some View {
+    let revealOffset = reveal?.rubberbandedOffset(max: 64) ?? 0
+    let phase: CellReplyPhase = state.presentation?.context.id == message.id
+      ? (state.isSourceHidden ? .presented : .preparing) : .idle
+
     HStack(spacing: 0) {
       if message.isSentByMe { Spacer(minLength: 60) }
 
-      Group {
-        if session.selected?.id == message.id {
-          // Hidden content reserves the exact wrapping and height, but does not
-          // register another matched-geometry source or expose an invisible button.
-          ReplyGeometryBubble(message: message, animatesProbe: false)
-            .hidden()
-            .accessibilityHidden(true)
-        } else if isAttachedToWindow {
-          ReplyGeometryBubble(message: message)
-            .matchedGeometryEffect(id: message.id, in: namespace)
-            .transition(.opacity)
-            .onTapGesture {
-              withAnimation(session.animation) {
-                session.selected = message
-              }
-            }
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("reply-geometry-source-\(message.id)")
-        } else {
-          // TiledView's off-window sizing cell must never become a second source.
-          ReplyGeometryBubble(message: message, animatesProbe: false)
+      MessageCell(
+        source: source,
+        isReplyEnabled: state.presentation == nil && revealOffset < 0.5,
+        replyPhase: phase,
+        onReply: { source, release in
+          state.present(message, from: source, velocity: release.velocity)
+        },
+        onSourceChange: { [weak state] source, attached in
+          state?.sourceDidChange(source, attached: attached)
+          DispatchQueue.main.async {
+            if isAttachedToWindow != attached { isAttachedToWindow = attached }
+          }
         }
+      ) {
+        ReplyGeometryBubble(message: message, animatesProbe: isAttachedToWindow)
       }
+        .overlay(alignment: .trailing) {
+          Text("12:00")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .offset(x: 48)
+            .opacity(min(revealOffset / 40, 1))
+            .allowsHitTesting(false)
+        }
+        .offset(x: -revealOffset)
+        .onTapGesture { state.present(message, from: source) }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(message.text)
+        .accessibilityIdentifier("reply-geometry-source-\(message.id)")
 
       if !message.isSentByMe { Spacer(minLength: 60) }
     }
     .padding(.horizontal, 12)
     .padding(.vertical, 2)
-    .background {
-      ReplyGeometryWindowProbe { isAttachedToWindow = $0 }
-    }
   }
 }
 
@@ -251,44 +229,16 @@ private struct ReplyAnimationProbe: View {
     .accessibilityElement(children: .ignore)
     .accessibilityLabel("Animation probe, render ID \(renderID.uuidString)")
     .onAppear {
-      // Hidden placeholders and off-window measurement hosts reserve the same
-      // geometry without starting an animation that cannot be observed.
+      // Off-window measurement hosts reserve the same geometry without starting
+      // an animation that cannot be observed.
       isRotating = isActive
     }
-  }
-}
-
-/// Detects actual window attachment without treating a sizing host as visible.
-private struct ReplyGeometryWindowProbe: UIViewRepresentable {
-  let onChange: (Bool) -> Void
-
-  func makeUIView(context: Context) -> WindowObserver {
-    let view = WindowObserver()
-    view.onChange = onChange
-    view.isUserInteractionEnabled = false
-    return view
-  }
-
-  func updateUIView(_ uiView: WindowObserver, context: Context) {
-    uiView.onChange = onChange
-  }
-
-  /// Reports attachment after UIKit has completed its view hierarchy mutation.
-  final class WindowObserver: UIView {
-    var onChange: ((Bool) -> Void)?
-
-    override func didMoveToWindow() {
-      super.didMoveToWindow()
-      DispatchQueue.main.async { [weak self] in
-        guard let self else { return }
-        self.onChange?(self.window != nil)
-      }
-    }
+    .onChange(of: isActive) { _, active in isRotating = active }
   }
 }
 
 #Preview {
-  NavigationStack {
-    ReplyGeometryDemo()
+  if #available(iOS 18.0, *) {
+    NavigationStack { ReplyGeometryDemo() }
   }
 }

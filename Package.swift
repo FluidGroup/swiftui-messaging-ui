@@ -13,13 +13,31 @@ let package = Package(
       name: "MessagingUI",
       targets: ["MessagingUI"]
     ),
+    .library(
+      name: "MessagingCell",
+      targets: ["MessagingCell"]
+    ),
+    .library(
+      name: "ContextOverlay",
+      targets: ["ContextOverlay"]
+    ),
   ],
   dependencies: [
+    .package(path: "Vendor/swiftui-snap-dragging-modifier"),
+    .package(url: "https://github.com/Aeastr/UIPortalBridge", from: "1.0.0"),
     .package(url: "https://github.com/apple/swift-collections", from: "1.3.0"),
     .package(url: "https://github.com/FluidGroup/swift-with-prerender", from: "1.1.0"),
     .package(url: "https://github.com/FluidGroup/swift-rubber-banding", from: "1.0.0"),
   ],
   targets: [
+    // Cell rendering and reply gestures can be used without a TiledView.
+    .target(name: "MessagingCell", dependencies: [
+      "ContextOverlay",
+      .product(name: "SwiftUISnapDraggingModifier", package: "swiftui-snap-dragging-modifier"),
+    ]),
+    .target(name: "ContextOverlay", dependencies: [
+      .product(name: "UIPortalBridge", package: "UIPortalBridge"),
+    ]),
     .target(
       name: "MessagingUI",
       dependencies: [
@@ -31,6 +49,14 @@ let package = Package(
     .testTarget(
       name: "MessagingUITests",
       dependencies: ["MessagingUI"]
+    ),
+    .testTarget(
+      name: "MessagingCellTests",
+      dependencies: ["MessagingCell"]
+    ),
+    .testTarget(
+      name: "ContextOverlayTests",
+      dependencies: ["ContextOverlay"]
     ),
   ],
   swiftLanguageModes: [.v6]

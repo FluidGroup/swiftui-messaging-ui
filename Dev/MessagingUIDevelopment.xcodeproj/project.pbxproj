@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		C10402000000000000000003 /* ContextOverlay in Frameworks */ = {isa = PBXBuildFile; productRef = C10402000000000000000004 /* ContextOverlay */; };
 		B039B87B2EAFA380008B41EF /* MessagingUI in Frameworks */ = {isa = PBXBuildFile; productRef = B039B87A2EAFA380008B41EF /* MessagingUI */; };
 		B039B88D2EAFA565008B41EF /* MessagingUI in Frameworks */ = {isa = PBXBuildFile; productRef = B039B88C2EAFA565008B41EF /* MessagingUI */; };
+		C10402000000000000000001 /* MessagingCell in Frameworks */ = {isa = PBXBuildFile; productRef = C10402000000000000000002 /* MessagingCell */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +31,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C10402000000000000000003 /* ContextOverlay in Frameworks */,
+				C10402000000000000000001 /* MessagingCell in Frameworks */,
 				B039B87B2EAFA380008B41EF /* MessagingUI in Frameworks */,
 				B039B88D2EAFA565008B41EF /* MessagingUI in Frameworks */,
 			);
@@ -74,6 +78,8 @@
 			);
 			name = MessagingUIDevelopment;
 			packageProductDependencies = (
+				C10402000000000000000004 /* ContextOverlay */,
+				C10402000000000000000002 /* MessagingCell */,
 				B039B87A2EAFA380008B41EF /* MessagingUI */,
 				B039B88C2EAFA565008B41EF /* MessagingUI */,
 			);
@@ -348,6 +354,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		C10402000000000000000004 /* ContextOverlay */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ContextOverlay;
+		};
 		B039B87A2EAFA380008B41EF /* MessagingUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MessagingUI;
@@ -355,6 +365,10 @@
 		B039B88C2EAFA565008B41EF /* MessagingUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MessagingUI;
+		};
+		C10402000000000000000002 /* MessagingCell */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = MessagingCell;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
