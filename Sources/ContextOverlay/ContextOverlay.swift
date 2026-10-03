@@ -14,11 +14,11 @@ public struct ContextOverlayContainer<Content: View>: View {
 
   public var body: some View {
     content
-      .blur(radius: context.overlay == nil ? 0 : 10)
+      .blur(radius: context.overlay?.configuration.backgroundBlurRadius ?? 0)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay {
         ZStack {
-          if let overlay = context.overlay {
+          if let overlay = context.overlay?.content {
             ZStack {
               overlay
             }
@@ -32,10 +32,40 @@ public struct ContextOverlayContainer<Content: View>: View {
 
 }
 
+public struct ContextOverlay: Equatable {
+  
+  public struct Configuration {
+    public let backgroundBlurRadius: CGFloat
+    
+    public init(backgroundBlurRadius: CGFloat) {
+      self.backgroundBlurRadius = backgroundBlurRadius
+    }
+  }
+  
+  public static func == (lhs: ContextOverlay, rhs: ContextOverlay) -> Bool {
+    lhs.requestID == rhs.requestID
+  }
+      
+  public let requestID: UUID
+  public let content: AnyView
+  public let configuration: Configuration
+  
+  init(
+    content: AnyView,
+    configuration: Configuration
+  ) {
+    self.requestID = .init()
+    self.content = content
+    self.configuration = configuration
+  }
+  
+}
+
+
 @MainActor
 @Observable
 private final class PortalContext: @MainActor Equatable {
-
+  
   static func == (lhs: PortalContext, rhs: PortalContext) -> Bool {
     lhs === rhs
   }
@@ -44,12 +74,18 @@ private final class PortalContext: @MainActor Equatable {
     didSet {
       print("targetView: \(targetView?.description ?? "nil")")
     }
-  }
+  }    
 
-  private(set) var overlay: AnyView?
+  private(set) var overlay: ContextOverlay?
 
-  func showOverlay<Content: View>(_ overlay: Content) {
-    self.overlay = AnyView(overlay)
+  func showOverlay<Content: View>(
+    _ overlay: Content,
+    configuration: ContextOverlay.Configuration
+  ) {
+    self.overlay = .init(
+      content: AnyView(overlay),
+      configuration: configuration
+    )
   }
 
   func hideOverlay() {
@@ -81,11 +117,13 @@ extension View {
 
   public func contextOverlay<Overlay: View>(
     isEnabled: Binding<Bool>,
+    configuration: ContextOverlay.Configuration = .init(backgroundBlurRadius: 16),
     @ViewBuilder _ overlay: @escaping (TransitionPhase) -> Overlay
   ) -> some View {
     modifier(
       ContextOverlayModifier(
         isTransmitting: isEnabled,
+        configuration: configuration,
         overlay: overlay
       )
     )
@@ -95,20 +133,25 @@ extension View {
 
 struct ContextOverlayModifier<Overlay: View>: ViewModifier {
 
-  let overlay: (TransitionPhase) -> Overlay
+  private let overlay: (TransitionPhase) -> Overlay
+  private let configuration: ContextOverlay.Configuration
+  
   @Binding var isTransmitting: Bool
 
   init(
     isTransmitting: Binding<Bool>,
+    configuration: ContextOverlay.Configuration,
     overlay: @escaping (TransitionPhase) -> Overlay
   ) {
-    _isTransmitting = isTransmitting
+    self._isTransmitting = isTransmitting
+    self.configuration = configuration
     self.overlay = overlay
   }
 
   func body(content: Content) -> some View {
     SourceWrapper(
       isTransmitting: $isTransmitting,
+      configuration: configuration,
       content: { content },
       overlay: { OverlayWrapper(overlay: overlay) }
     )
@@ -137,14 +180,17 @@ struct ContextOverlayModifier<Overlay: View>: ViewModifier {
     @Environment(\.portalContext) private var context
     @Environment(\.portalNamespace) private var namespace
     @State private var ref: UIView?
-    let overlay: _Overlay
+    private let overlay: _Overlay
+    private let configuration: ContextOverlay.Configuration
 
     init(
       isTransmitting: Binding<Bool>,
+      configuration: ContextOverlay.Configuration,
       @ViewBuilder content: () -> Content,
       @ViewBuilder overlay: () -> _Overlay
     ) {
       self.content = content()
+      self.configuration = configuration
       self.isTransmitting = isTransmitting
       self.overlay = overlay()
     }
@@ -166,7 +212,10 @@ struct ContextOverlayModifier<Overlay: View>: ViewModifier {
           withAnimation(.smooth) {
             if isTransmitting {
               context.targetView = ref
-              context.showOverlay(overlay)
+              context.showOverlay(
+                overlay,
+                configuration: configuration
+              )
             } else {
               context.hideOverlay()
             }

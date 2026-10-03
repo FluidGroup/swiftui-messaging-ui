@@ -124,11 +124,31 @@ struct ChatMessageCell: TiledCellContent {
           { phase in
             
             ZStack {
-                                        
-              PortalDestination(
-                usesMatchedGeometry: phase != .identity,
-                configuration: .init()
-              )
+              
+              Color.black
+                .opacity(phase == .identity ? 0.2 : 0)
+                .ignoresSafeArea()
+              
+              ScrollView {     
+                
+                ZStack {
+
+                  Color.clear
+                    .contentShape(Rectangle())
+                    .allowsHitTesting(phase == .identity)
+                    .onTapGesture {
+                      isReplying = false
+                    }   
+                    .containerRelativeFrame(.vertical)
+                  
+                  PortalDestination(
+                    usesMatchedGeometry: phase != .identity,
+                    configuration: .init()
+                  )
+                }
+              }
+              .defaultScrollAnchor(.center)
+              .allowsHitTesting(phase == .identity)
              
             }
         })
