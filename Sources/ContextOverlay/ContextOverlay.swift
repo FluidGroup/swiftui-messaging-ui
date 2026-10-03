@@ -382,9 +382,9 @@ private final class SourceViewContainer<Content: View> {
                       isTransmitting = false
                     }
 
-//                    PortalDestination(
-//                      usesMatchedGeometry: phase != .identity
-//                    )
+                    PortalDestination(
+                      usesMatchedGeometry: phase != .identity
+                    )
 
                     Capsule()
                       .frame(width: 100, height: 100)
