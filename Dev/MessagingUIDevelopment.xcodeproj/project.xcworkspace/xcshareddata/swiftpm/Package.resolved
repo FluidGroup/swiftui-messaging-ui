@@ -1,4 +1,5 @@
 {
+  "originHash" : "9151a0325293a10a3079769b38e4bfc377fefa71bf6381b24e7feebc7050e17f",
   "pins" : [
     {
       "identity" : "swift-collections",

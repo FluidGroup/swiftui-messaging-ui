@@ -8,6 +8,8 @@
 import SwiftUI
 import SwiftData
 import MessagingUI
+import ContextOverlay
+import SwiftUISnapDraggingModifier
 
 // MARK: - SwiftData Model
 
@@ -52,23 +54,86 @@ struct ChatMessageItem: Identifiable, Equatable, MessageContentWithStatus {
 // MARK: - ChatMessageCell (with context menu)
 
 struct ChatMessageCell: TiledCellContent {
+  
   typealias StateValue = Void
 
   let item: ChatMessageItem
   var onDelete: (() -> Void)?
 
   func body(context: CellContext<Void>) -> some View {
-    MessageBubbleWithStatusCell(item: item)
-      .body(context: context)
-      .contextMenu {
-        if let onDelete {
-          Button(role: .destructive) {
-            onDelete()
-          } label: {
-            Label("Delete", systemImage: "trash")
-          }
+    
+    ReplyContainer {       
+      MessageBubbleWithStatusCell(item: item)
+        .body(context: context)
+    }      
+    .contextMenu {
+      if let onDelete {
+        Button(role: .destructive) {
+          onDelete()
+        } label: {
+          Label("Delete", systemImage: "trash")
         }
       }
+    }
+  }
+  
+  struct ReplyContainer<Content: View>: View {
+    
+    @State private var offset: CGSize = .zero
+    @State private var isReplying: Bool = false
+    
+    let content: Content
+    
+    private var isTriggering: Bool {
+      offset.width > 44
+    }
+    
+    init(@ViewBuilder content: () -> Content) {
+      self.content = content()
+    }
+    
+    var body: some View {
+      content
+        .modifier(
+          SnapDraggingModifier(
+            gestureMode: .directional,
+            offset: $offset,
+            axis: [.horizontal],
+            horizontalBoundary: .init(
+              min: 0,
+              max: 50,
+              bandLength: 50
+            ),
+            handler: .init(
+              onEndDragging: { velocity, offset, contentSize in
+
+                if self.isTriggering {
+                  self.isReplying = true
+                }
+                return .zero
+
+              },
+              onCompleteAnimation: {
+
+              }
+            )
+          )
+        )
+        .contextOverlay(
+          isEnabled: $isReplying,
+          { phase in
+            
+            ZStack {
+                                        
+              PortalDestination(
+                usesMatchedGeometry: phase != .identity,
+                configuration: .init()
+              )
+             
+            }
+        })
+      
+    }
   }
 }
 
@@ -430,93 +495,96 @@ struct MessengerSwiftDataDemo: View {
   }
 
   private func loadedContent(store: ChatStore) -> some View {
-    ZStack(alignment: .bottomTrailing) {
-      TiledView(
-        items: store.items,
-        scrollPosition: $scrollPosition
-      ) { message in
-        ChatMessageCell(item: message) {
-          store.deleteMessage(id: message.id)
-        }
-      }
-      .headerContent(.header(content: {
-        Color.blue.frame(height: 200)
-      }))
-      .prependLoader(.loader(perform: {
-        guard store.hasMore else { return }
-        await store.loadOlder()
-      }) {
-        HStack(spacing: 8) {
-          ProgressView()
-          Text("Loading older messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-      })
-      .appendLoader(.loader(perform: {
-        guard store.hasNewer else { return }
-        await store.loadNewer()
-      }) {
-        HStack(spacing: 8) {
-          ProgressView()
-          Text("Loading newer messages...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-      })
-      .typingIndicator(.indicator(isVisible: isTyping) {
-        HStack(spacing: 8) {
-          TypingDotsView()
-          Text("Someone is typing...")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-      })
-      .revealConfiguration(.default)
-      .onDragIntoBottomSafeArea {
-        isInputFocused = false
-      }
-      .onTapBackground {
-        isInputFocused = false
-      }
-      .onTiledScrollGeometryChange { geometry in
-        let nextIsNearBottom = geometry.pointsFromBottom < 100
-        if isNearBottom != nextIsNearBottom {
-          isNearBottom = nextIsNearBottom
-        }
-        // Auto-scroll to bottom when near bottom and no newer messages
-        if !store.hasNewer {
-          if scrollPosition.autoScrollsToBottomOnAppend != nextIsNearBottom {
-            scrollPosition.autoScrollsToBottomOnAppend = nextIsNearBottom
+    ContextOverlayContainer { 
+      ZStack(alignment: .bottomTrailing) {
+        TiledView(
+          items: store.items,
+          scrollPosition: $scrollPosition
+        ) { message in
+          ChatMessageCell(item: message) {
+            store.deleteMessage(id: message.id)
           }
         }
-      }
-
-      // Scroll to bottom button
-      if !isNearBottom {
-        Button {
-          scrollPosition.scrollTo(edge: .bottom, animated: true)
-        } label: {
-          Image(systemName: "arrow.down.circle.fill")
-            .font(.title)
-            .foregroundStyle(.blue)
-            .background(Circle().fill(.white))
+        .headerContent(.header(content: {
+          Color.blue.frame(height: 200)
+        }))
+        .prependLoader(.loader(perform: {
+          guard store.hasMore else { return }
+          await store.loadOlder()
+        }) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading older messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        })
+        .appendLoader(.loader(perform: {
+          guard store.hasNewer else { return }
+          await store.loadNewer()
+        }) {
+          HStack(spacing: 8) {
+            ProgressView()
+            Text("Loading newer messages...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity)
+          .padding(.vertical, 12)
+        })
+        .typingIndicator(.indicator(isVisible: isTyping) {
+          HStack(spacing: 8) {
+            TypingDotsView()
+            Text("Someone is typing...")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 12)
+        })
+        .revealConfiguration(.default)
+        .onDragIntoBottomSafeArea {
+          isInputFocused = false
         }
-        .padding()
-        .transition(.scale.combined(with: .opacity))
+        .onTapBackground {
+          isInputFocused = false
+        }
+        .onTiledScrollGeometryChange { geometry in
+          let nextIsNearBottom = geometry.pointsFromBottom < 100
+          if isNearBottom != nextIsNearBottom {
+            isNearBottom = nextIsNearBottom
+          }
+          // Auto-scroll to bottom when near bottom and no newer messages
+          if !store.hasNewer {
+            if scrollPosition.autoScrollsToBottomOnAppend != nextIsNearBottom {
+              scrollPosition.autoScrollsToBottomOnAppend = nextIsNearBottom
+            }
+          }
+        }
+
+        // Scroll to bottom button
+        if !isNearBottom {
+          Button {
+            scrollPosition.scrollTo(edge: .bottom, animated: true)
+          } label: {
+            Image(systemName: "arrow.down.circle.fill")
+              .font(.title)
+              .foregroundStyle(.blue)
+              .background(Circle().fill(.white))
+          }
+          .padding()
+          .transition(.scale.combined(with: .opacity))
+        }
       }
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        inputView
+      }
+      .animation(.easeInOut(duration: 0.2), value: isNearBottom)
     }
-    .safeAreaInset(edge: .bottom, spacing: 0) {
-      inputView
-    }
-    .animation(.easeInOut(duration: 0.2), value: isNearBottom)
+   
   }
 
   private func sendMessage() {

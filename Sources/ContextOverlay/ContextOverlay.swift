@@ -14,6 +14,7 @@ public struct ContextOverlayContainer<Content: View>: View {
 
   public var body: some View {
     content
+      .blur(radius: context.overlay == nil ? 0 : 10)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .overlay {
         ZStack {
