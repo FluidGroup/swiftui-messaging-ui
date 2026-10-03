@@ -51,6 +51,40 @@ struct ChatMessageItem: Identifiable, Equatable, MessageContentWithStatus {
   }
 }
 
+#Preview {
+  
+  @Previewable @State var offset: CGSize = .zero
+  @Previewable @State var isTriggering: Bool = false
+  
+  RoundedRectangle(cornerRadius: 8)
+    .frame(width: 100, height: 100)
+    .modifier(SnapDraggingModifier(
+      gestureMode: .directional,
+      offset: $offset,
+      axis: [.horizontal],
+      horizontalBoundary: .init(
+        min: 0,
+        max: 50,
+        bandLength: 50
+      ),
+      springParameter: .interpolation(mass: 1, stiffness: 1, damping: 1),
+      handler: .init(
+        onEndDragging: { velocity, offset, contentSize in
+
+          if isTriggering {
+//                  self.isReplying = true
+          }
+          return .zero
+
+        },
+        onCompleteAnimation: {
+
+        }
+      )
+    ))
+  
+}
+
 // MARK: - ChatMessageCell (with context menu)
 
 struct ChatMessageCell: TiledCellContent {
@@ -119,6 +153,13 @@ struct ChatMessageCell: TiledCellContent {
             )
           )
         )
+        .sensoryFeedback(trigger: isTriggering, { oldValue, newValue in
+          if oldValue == false && newValue == true {
+            return .impact(flexibility: .soft)
+          } else {
+            return nil
+          }
+        })
         .contextOverlay(
           isEnabled: $isReplying,
           { phase in
@@ -565,7 +606,7 @@ struct MessengerSwiftDataDemo: View {
           .padding(.horizontal, 16)
           .padding(.vertical, 12)
         })
-        .revealConfiguration(.default)
+        .revealConfiguration(.disabled)
         .onDragIntoBottomSafeArea {
           isInputFocused = false
         }
