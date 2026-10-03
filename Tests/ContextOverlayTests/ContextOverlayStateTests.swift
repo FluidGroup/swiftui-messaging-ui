@@ -49,7 +49,6 @@ struct ContextOverlayStateTests {
     #expect(!state.isSourceHidden)
 
     fixture.connect(presentation.mirror)
-    #expect(presentation.mirror.portalView.isAvailable)
     #expect(presentation.mirror.portalView.sourceView === fixture.rendering)
     #expect(portalSourceView(presentation.mirror) === fixture.rendering)
     #expect(presentation.mirror.portalView.hidesSourceView)

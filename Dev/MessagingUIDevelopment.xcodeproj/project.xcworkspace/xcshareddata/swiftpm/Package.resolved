@@ -1,15 +1,6 @@
 {
   "pins" : [
     {
-      "identity" : "obfuscate",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Aeastr/Obfuscate.git",
-      "state" : {
-        "revision" : "459e6ea0692ed5a5cbc79d414d56e1ff3b07e44d",
-        "version" : "1.4.0"
-      }
-    },
-    {
       "identity" : "swift-collections",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-collections",
@@ -25,15 +16,6 @@
       "state" : {
         "revision" : "f2dbd09829c6267db0a769e7c37fe332dab0b675",
         "version" : "1.0.0"
-      }
-    },
-    {
-      "identity" : "swift-syntax",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/swiftlang/swift-syntax",
-      "state" : {
-        "revision" : "0687f71944021d616d34d922343dcef086855920",
-        "version" : "600.0.1"
       }
     },
     {
@@ -61,15 +43,6 @@
       "state" : {
         "revision" : "f8058066c1d310458390d6c73462bf6722b71fc9",
         "version" : "0.14.0"
-      }
-    },
-    {
-      "identity" : "uiportalbridge",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/Aeastr/UIPortalBridge",
-      "state" : {
-        "revision" : "fd542e0d66b305cd802fdbacd7f1a153c210c50a",
-        "version" : "1.0.0"
       }
     }
   ],

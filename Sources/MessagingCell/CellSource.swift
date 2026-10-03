@@ -6,7 +6,6 @@ import UIKit
 /// Keep this object in the cell's SwiftUI state and pass it to ``MessageCell``.
 /// The cell owns the UIKit rendering view; this reference does not prolong its
 /// lifetime. Other overlay sources can use `ContextOverlaySource` directly.
-public typealias CellSource = ContextOverlaySource
 
 /// The caller-owned phase of a cell's handoff to a reply presentation.
 public enum CellReplyPhase: Equatable, Sendable {

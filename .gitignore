@@ -9,3 +9,4 @@ DerivedData/
 .claude/settings.local.json
 /Derived
 swiftui-messaging-ui.xcodeproj
+.tmp
