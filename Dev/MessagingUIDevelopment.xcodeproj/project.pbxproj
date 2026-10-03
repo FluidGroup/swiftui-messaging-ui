@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B01DC0CF307114E8002681BA /* SwiftUISnapDraggingModifier in Frameworks */ = {isa = PBXBuildFile; productRef = B01DC0CE307114E8002681BA /* SwiftUISnapDraggingModifier */; };
 		B039B87B2EAFA380008B41EF /* MessagingUI in Frameworks */ = {isa = PBXBuildFile; productRef = B039B87A2EAFA380008B41EF /* MessagingUI */; };
 		B039B88D2EAFA565008B41EF /* MessagingUI in Frameworks */ = {isa = PBXBuildFile; productRef = B039B88C2EAFA565008B41EF /* MessagingUI */; };
+		C10402000000000000000003 /* ContextOverlay in Frameworks */ = {isa = PBXBuildFile; productRef = C10402000000000000000004 /* ContextOverlay */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,7 +31,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C10402000000000000000003 /* ContextOverlay in Frameworks */,
 				B039B87B2EAFA380008B41EF /* MessagingUI in Frameworks */,
+				B01DC0CF307114E8002681BA /* SwiftUISnapDraggingModifier in Frameworks */,
 				B039B88D2EAFA565008B41EF /* MessagingUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -74,8 +78,10 @@
 			);
 			name = MessagingUIDevelopment;
 			packageProductDependencies = (
+				C10402000000000000000004 /* ContextOverlay */,
 				B039B87A2EAFA380008B41EF /* MessagingUI */,
 				B039B88C2EAFA565008B41EF /* MessagingUI */,
+				B01DC0CE307114E8002681BA /* SwiftUISnapDraggingModifier */,
 			);
 			productName = MessagingUIDevelopment;
 			productReference = B039B8632EAFA31B008B41EF /* MessagingUIDevelopment.app */;
@@ -106,6 +112,7 @@
 			mainGroup = B039B85A2EAFA31B008B41EF;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				B01DC0CD307114E8002681BA /* XCLocalSwiftPackageReference "../Vendor/swiftui-snap-dragging-modifier" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B039B8642EAFA31B008B41EF /* Products */;
@@ -273,7 +280,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -306,7 +313,7 @@
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -347,7 +354,18 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReference section */
+		B01DC0CD307114E8002681BA /* XCLocalSwiftPackageReference "../Vendor/swiftui-snap-dragging-modifier" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../Vendor/swiftui-snap-dragging-modifier";
+		};
+/* End XCLocalSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
+		B01DC0CE307114E8002681BA /* SwiftUISnapDraggingModifier */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = SwiftUISnapDraggingModifier;
+		};
 		B039B87A2EAFA380008B41EF /* MessagingUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MessagingUI;
@@ -355,6 +373,10 @@
 		B039B88C2EAFA565008B41EF /* MessagingUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = MessagingUI;
+		};
+		C10402000000000000000004 /* ContextOverlay */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ContextOverlay;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -13,6 +13,10 @@ let package = Package(
       name: "MessagingUI",
       targets: ["MessagingUI"]
     ),
+    .library(
+      name: "ContextOverlay",
+      targets: ["ContextOverlay"]
+    ),
   ],
   dependencies: [
     .package(url: "https://github.com/apple/swift-collections", from: "1.3.0"),
@@ -20,6 +24,7 @@ let package = Package(
     .package(url: "https://github.com/FluidGroup/swift-rubber-banding", from: "1.0.0"),
   ],
   targets: [
+    .target(name: "ContextOverlay"),
     .target(
       name: "MessagingUI",
       dependencies: [
@@ -31,6 +36,10 @@ let package = Package(
     .testTarget(
       name: "MessagingUITests",
       dependencies: ["MessagingUI"]
+    ),
+    .testTarget(
+      name: "ContextOverlayTests",
+      dependencies: ["ContextOverlay"]
     ),
   ],
   swiftLanguageModes: [.v6]

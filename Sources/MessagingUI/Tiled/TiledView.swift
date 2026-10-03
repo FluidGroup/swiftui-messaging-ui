@@ -1681,7 +1681,7 @@ final class TiledUIView<
       let adjustedOffset = rawOffset - revealGestureState.directionThreshold
       setRevealOffset(max(0, adjustedOffset))
 
-    case .ended, .cancelled:
+    case .ended, .cancelled, .failed:
       snapBackReveal()
       revealGestureState.reset()
 
@@ -1691,6 +1691,17 @@ final class TiledUIView<
   }
 
   // MARK: - UIGestureRecognizerDelegate
+
+  /// Reserves leftward horizontal pans for reveal before another cell gesture begins.
+  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    guard gestureRecognizer == revealGestureState.panGesture,
+      let pan = gestureRecognizer as? UIPanGestureRecognizer
+    else { return true }
+    guard revealConfiguration.isEnabled else { return false }
+
+    let translation = pan.translation(in: pan.view)
+    return translation.x < 0 && abs(translation.x) > abs(translation.y)
+  }
 
   /// Allow simultaneous recognition with scroll view's pan gesture.
   func gestureRecognizer(
