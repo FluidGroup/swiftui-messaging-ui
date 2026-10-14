@@ -189,9 +189,9 @@ struct ChatMessageCell: TiledCellContent {
                 }
               }
               .defaultScrollAnchor(.center)
-              .allowsHitTesting(phase == .identity)
              
             }
+            .allowsHitTesting(phase == .identity)
         })
       
     }
