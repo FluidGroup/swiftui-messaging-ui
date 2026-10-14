@@ -1,5 +1,5 @@
 {
-  "originHash" : "cf30d3866b089946692d0cb53b6824a425ee50b9313be85ccf55af590a5ebe9f",
+  "originHash" : "9151a0325293a10a3079769b38e4bfc377fefa71bf6381b24e7feebc7050e17f",
   "pins" : [
     {
       "identity" : "swift-collections",
@@ -26,6 +26,24 @@
       "state" : {
         "revision" : "3ebae495b1c441edcf0850ec057f97be221dca0f",
         "version" : "1.1.0"
+      }
+    },
+    {
+      "identity" : "swiftui-scrollview-interoperable-drag-gesture",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidGroup/swiftui-scrollview-interoperable-drag-gesture",
+      "state" : {
+        "revision" : "ee6daeca239c6cb180724f1c4bfad383f58eac22",
+        "version" : "0.5.0"
+      }
+    },
+    {
+      "identity" : "swiftui-support",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/FluidGroup/swiftui-support",
+      "state" : {
+        "revision" : "f8058066c1d310458390d6c73462bf6722b71fc9",
+        "version" : "0.14.0"
       }
     }
   ],
