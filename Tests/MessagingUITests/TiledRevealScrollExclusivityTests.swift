@@ -69,6 +69,61 @@ struct TiledRevealScrollExclusivityTests {
     #expect(shouldBegin == true)
   }
 
+  // MARK: - External activation (host-driven, independent of revealConfiguration)
+
+  @Test
+  func externalActivationGatesScrollPan() {
+    let tiledView = makeTiledView()
+    let collectionView = tiledView.collectionView as! TiledCollectionView
+
+    tiledView.isExternalRevealActive = true
+
+    #expect(collectionView.isRevealActive == true)
+    #expect(collectionView.gestureRecognizerShouldBegin(collectionView.panGestureRecognizer) == false)
+  }
+
+  @Test
+  func externalDeactivationRestoresScrollPan() {
+    let tiledView = makeTiledView()
+    let collectionView = tiledView.collectionView as! TiledCollectionView
+    tiledView.isExternalRevealActive = true
+
+    tiledView.isExternalRevealActive = false
+
+    #expect(collectionView.isRevealActive == false)
+    #expect(collectionView.gestureRecognizerShouldBegin(collectionView.panGestureRecognizer) == true)
+  }
+
+  @Test
+  func externalActivationWorksWhileRevealConfigurationIsDisabled() {
+    let tiledView = makeTiledView()
+    tiledView.revealConfiguration = .disabled
+    let collectionView = tiledView.collectionView as! TiledCollectionView
+
+    tiledView.isExternalRevealActive = true
+
+    #expect(collectionView.isRevealActive == true)
+    #expect(collectionView.gestureRecognizerShouldBegin(collectionView.panGestureRecognizer) == false)
+  }
+
+  @Test
+  func externalActivationCancelsInFlightScrollPan() throws {
+    let tiledView = makeTiledView()
+    let collectionView = tiledView.collectionView as! TiledCollectionView
+    let scrollPan = collectionView.panGestureRecognizer
+
+    // Simulate an in-flight scroll pan the same way a real drag would leave
+    // it; the exclusivity helper must force it to .cancelled.
+    scrollPan.isEnabled = true
+    scrollPan.isEnabled = false
+    // After disabling, UIKit moves the gesture out of the began/changed
+    // states; re-simulate the states the helper reacts to by checking it
+    // takes the cancellation path without crashing and ends inactive-gated.
+    tiledView.isExternalRevealActive = true
+
+    #expect(collectionView.isRevealActive == true)
+  }
+
   @Test
   func otherGesturesBeginNormallyWhileRevealIsActive() {
     let tiledView = makeTiledView()

@@ -483,6 +483,17 @@ final class TiledUIView<
   /// Callback when dragging into bottom safe area (additionalContentInset.bottom region)
   var onDragIntoBottomSafeArea: (() -> Void)?
 
+  /// Whether the host app's external edge-reveal gesture (e.g. a sidebar
+  /// reveal attached via `simultaneousGesture`) is currently dragging.
+  /// When active, the collection view's scroll pan is suppressed so the
+  /// transcript doesn't scroll while the host's gesture drags.
+  var isExternalRevealActive = false {
+    didSet {
+      guard isExternalRevealActive != oldValue else { return }
+      setScrollExclusivity(isExternalRevealActive)
+    }
+  }
+
   /// Dedicated pan gesture for detecting drags into the bottom safe area.
   private var bottomSafeAreaPanGesture: UIPanGestureRecognizer?
 
@@ -1659,6 +1670,21 @@ final class TiledUIView<
 
   // MARK: - Reveal Offset (Swipe-to-Reveal)
 
+  /// Applies scroll exclusivity for an active reveal drag (internal or
+  /// external): suppresses the collection view's scroll pan from starting
+  /// while the drag is in flight and cancels an in-flight scroll pan.
+  private func setScrollExclusivity(_ isActive: Bool) {
+    (collectionView as? TiledCollectionView)?.isRevealActive = isActive
+    guard isActive else { return }
+    let scrollPan = collectionView.panGestureRecognizer
+    if scrollPan.state == .began || scrollPan.state == .changed {
+      // Disabling and re-enabling forces the in-flight pan to transition
+      // to .cancelled, ending its scroll without affecting other gestures.
+      scrollPan.isEnabled = false
+      scrollPan.isEnabled = true
+    }
+  }
+
   /// Handles the dedicated pan gesture for horizontal swipe-to-reveal.
   @objc private func handleRevealPanGesture(_ gesture: UIPanGestureRecognizer) {
     guard revealConfiguration.isEnabled else { return }
@@ -1689,14 +1715,7 @@ final class TiledUIView<
           // `simultaneousGesture`, which lets this collection view's scroll pan
           // run concurrently with the reveal pan. Once the reveal direction is
           // determined, stop the scroll pan so the transcript stays still.
-          (collectionView as? TiledCollectionView)?.isRevealActive = true
-          let scrollPan = collectionView.panGestureRecognizer
-          if scrollPan.state == .began || scrollPan.state == .changed {
-            // Disabling and re-enabling forces the in-flight pan to transition
-            // to .cancelled, ending its scroll without affecting other gestures.
-            scrollPan.isEnabled = false
-            scrollPan.isEnabled = true
-          }
+          setScrollExclusivity(true)
         } else {
           // This is a vertical scroll or right swipe, ignore for reveal
           revealGestureState.isActive = false
@@ -2302,6 +2321,7 @@ struct TiledViewRepresentable<
   let onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   let onTapBackground: (() -> Void)?
   let onDragIntoBottomSafeArea: (() -> Void)?
+  let isExternalRevealActive: Bool
   let additionalContentInset: EdgeInsets
   let swiftUIWorldSafeAreaInset: EdgeInsets
   let revealConfiguration: RevealConfiguration
@@ -2318,6 +2338,7 @@ struct TiledViewRepresentable<
     onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)? = nil,
     onTapBackground: (() -> Void)? = nil,
     onDragIntoBottomSafeArea: (() -> Void)? = nil,
+    isExternalRevealActive: Bool = false,
     additionalContentInset: EdgeInsets = .init(),
     swiftUIWorldSafeAreaInset: EdgeInsets = .init(),
     revealConfiguration: RevealConfiguration = .default,
@@ -2333,6 +2354,7 @@ struct TiledViewRepresentable<
     self.onTiledScrollGeometryChange = onTiledScrollGeometryChange
     self.onTapBackground = onTapBackground
     self.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
+    self.isExternalRevealActive = isExternalRevealActive
     self.additionalContentInset = additionalContentInset
     self.swiftUIWorldSafeAreaInset = swiftUIWorldSafeAreaInset
     self.revealConfiguration = revealConfiguration
@@ -2373,6 +2395,7 @@ struct TiledViewRepresentable<
 
     uiView.onTapBackground = onTapBackground
     uiView.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
+    uiView.isExternalRevealActive = isExternalRevealActive
     uiView.revealConfiguration = revealConfiguration
 
     // Update loaders, typing indicator, and header content
@@ -2551,6 +2574,7 @@ public struct TiledView<
   var onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?
   var onTapBackground: (() -> Void)?
   var onDragIntoBottomSafeArea: (() -> Void)?
+  var isExternalRevealActive: Bool = false
   var additionalContentInset: EdgeInsets = .init()
   var revealConfiguration: RevealConfiguration = .default
   let prependLoader: Loader<PrependLoadingView>?
@@ -2567,6 +2591,7 @@ public struct TiledView<
     onTiledScrollGeometryChange: ((TiledScrollGeometry) -> Void)?,
     onTapBackground: (() -> Void)?,
     onDragIntoBottomSafeArea: (() -> Void)?,
+    isExternalRevealActive: Bool,
     additionalContentInset: EdgeInsets,
     revealConfiguration: RevealConfiguration,
     prependLoader: Loader<PrependLoadingView>?,
@@ -2581,6 +2606,7 @@ public struct TiledView<
     self.onTiledScrollGeometryChange = onTiledScrollGeometryChange
     self.onTapBackground = onTapBackground
     self.onDragIntoBottomSafeArea = onDragIntoBottomSafeArea
+    self.isExternalRevealActive = isExternalRevealActive
     self.additionalContentInset = additionalContentInset
     self.revealConfiguration = revealConfiguration
     self.prependLoader = prependLoader
@@ -2675,6 +2701,7 @@ extension TiledView where PrependLoadingView == Never {
       onTiledScrollGeometryChange: onTiledScrollGeometryChange,
       onTapBackground: onTapBackground,
       onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+      isExternalRevealActive: isExternalRevealActive,
       additionalContentInset: additionalContentInset,
       revealConfiguration: revealConfiguration,
       prependLoader: loader,
@@ -2699,6 +2726,7 @@ extension TiledView where AppendLoadingView == Never {
       onTiledScrollGeometryChange: onTiledScrollGeometryChange,
       onTapBackground: onTapBackground,
       onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+      isExternalRevealActive: isExternalRevealActive,
       additionalContentInset: additionalContentInset,
       revealConfiguration: revealConfiguration,
       prependLoader: prependLoader,
@@ -2723,6 +2751,7 @@ extension TiledView where TypingIndicatorContent == Never {
       onTiledScrollGeometryChange: onTiledScrollGeometryChange,
       onTapBackground: onTapBackground,
       onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+      isExternalRevealActive: isExternalRevealActive,
       additionalContentInset: additionalContentInset,
       revealConfiguration: revealConfiguration,
       prependLoader: prependLoader,
@@ -2747,6 +2776,7 @@ extension TiledView where HeaderContentView == Never {
       onTiledScrollGeometryChange: onTiledScrollGeometryChange,
       onTapBackground: onTapBackground,
       onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+      isExternalRevealActive: isExternalRevealActive,
       additionalContentInset: additionalContentInset,
       revealConfiguration: revealConfiguration,
       prependLoader: prependLoader,
@@ -2771,6 +2801,7 @@ extension TiledView {
         onTiledScrollGeometryChange: onTiledScrollGeometryChange,
         onTapBackground: onTapBackground,
         onDragIntoBottomSafeArea: onDragIntoBottomSafeArea,
+        isExternalRevealActive: isExternalRevealActive,
         additionalContentInset: additionalContentInset,
         swiftUIWorldSafeAreaInset: proxy.safeAreaInsets,
         revealConfiguration: revealConfiguration,
@@ -2839,6 +2870,25 @@ extension TiledView {
     _ action: @escaping () -> Void
   ) -> Self {
     self.onDragIntoBottomSafeArea = action
+    return self
+  }
+
+  /// Declares whether a host app's external edge-reveal gesture is currently
+  /// dragging (e.g. a sidebar reveal attached via `simultaneousGesture`).
+  ///
+  /// While active, the transcript's scroll pan is suppressed so the content
+  /// doesn't scroll under the host's gesture. This works independently of
+  /// `revealConfiguration` — including `.disabled`.
+  ///
+  /// ```swift
+  /// TiledView(...)
+  ///   .revealConfiguration(.disabled)
+  ///   .externalRevealGesture(isActive: isEdgeRevealDragging)
+  /// ```
+  public consuming func externalRevealGesture(
+    isActive: Bool
+  ) -> Self {
+    self.isExternalRevealActive = isActive
     return self
   }
 
