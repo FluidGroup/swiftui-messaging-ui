@@ -138,6 +138,27 @@ private struct RevealGestureState: ~Copyable {
   }
 }
 
+/// Collection view that refuses to begin scrolling while a swipe-to-reveal
+/// pan is in progress.
+///
+/// The reveal pan is added to this collection view, so without this override
+/// the scroll pan competes with (and simultaneously recognizes alongside) the
+/// reveal gesture whenever a host app attaches its own edge-reveal gesture via
+/// `simultaneousGesture`, scrolling the transcript while the reveal drags.
+final class TiledCollectionView: UICollectionView {
+
+  /// Whether a swipe-to-reveal pan is currently dragging. Set by `TiledUIView`
+  /// when the reveal direction is determined and cleared when it ends.
+  var isRevealActive = false
+
+  override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+    if gestureRecognizer === panGestureRecognizer, isRevealActive {
+      return false
+    }
+    return super.gestureRecognizerShouldBegin(gestureRecognizer)
+  }
+}
+
 // MARK: - Loader
 
 /// Configuration for edge loading with indicator view.
@@ -342,7 +363,7 @@ final class TiledUIView<
 >: UIView, UICollectionViewDataSource, UICollectionViewDelegate, UIGestureRecognizerDelegate {
 
   private let tiledLayout: TiledCollectionViewLayout = .init()
-  private var collectionView: UICollectionView!
+  var collectionView: UICollectionView!
 
   private var items: Deque<Item> = []
   private var displayedAccessoryState = DisplayedAccessoryState()
@@ -646,7 +667,7 @@ final class TiledUIView<
         self?.displaySectionItemCounts() ?? []
       }
       
-      collectionView = .init(frame: .zero, collectionViewLayout: tiledLayout)
+      collectionView = TiledCollectionView(frame: .zero, collectionViewLayout: tiledLayout)
       collectionView.translatesAutoresizingMaskIntoConstraints = false
       collectionView.selfSizingInvalidation = .enabledIncludingConstraints
       collectionView.backgroundColor = .clear
@@ -1664,9 +1685,22 @@ final class TiledUIView<
         // Horizontal movement must be greater than vertical movement
         if abs(translation.x) > abs(translation.y) && translation.x < 0 {
           revealGestureState.isActive = true
+          // A host app may reveal a side panel with its own gesture attached via
+          // `simultaneousGesture`, which lets this collection view's scroll pan
+          // run concurrently with the reveal pan. Once the reveal direction is
+          // determined, stop the scroll pan so the transcript stays still.
+          (collectionView as? TiledCollectionView)?.isRevealActive = true
+          let scrollPan = collectionView.panGestureRecognizer
+          if scrollPan.state == .began || scrollPan.state == .changed {
+            // Disabling and re-enabling forces the in-flight pan to transition
+            // to .cancelled, ending its scroll without affecting other gestures.
+            scrollPan.isEnabled = false
+            scrollPan.isEnabled = true
+          }
         } else {
           // This is a vertical scroll or right swipe, ignore for reveal
           revealGestureState.isActive = false
+          (collectionView as? TiledCollectionView)?.isRevealActive = false
           return
         }
       }
@@ -1684,6 +1718,7 @@ final class TiledUIView<
     case .ended, .cancelled:
       snapBackReveal()
       revealGestureState.reset()
+      (collectionView as? TiledCollectionView)?.isRevealActive = false
 
     default:
       break
